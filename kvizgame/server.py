@@ -1,0 +1,253 @@
+"""aiohttp WebSocket server for KvizGame sessions."""
+
+from __future__ import annotations
+
+import json as _json
+import logging
+import os
+import pathlib
+import urllib.parse
+
+import aiohttp
+from aiohttp import WSMsgType, web
+
+from kvizgame.config import config
+from kvizgame.game import GameMachine, Settings
+from kvizgame.parser import load
+from kvizgame.session import GameSession, cleanup_stale_media_dirs
+
+logger = logging.getLogger(__name__)
+
+_MEDIA_FOLDERS = ('Images', 'Audio', 'Video')
+
+
+async def _ws_handler(request: web.Request) -> web.WebSocketResponse:
+    """WebSocket endpoint: /ws/{channel_id}?player_id=xxx"""
+    channel_id = request.match_info['channel_id']
+    player_id = request.rel_url.query.get('player_id', '').strip()
+
+    if not player_id:
+        raise web.HTTPBadRequest(reason='player_id query parameter is required')
+
+    sessions: dict[str, GameSession] = request.app['sessions']
+    session = sessions.get(channel_id)
+    if session is None:
+        raise web.HTTPNotFound(reason=f'No session for channel {channel_id!r}')
+
+    ws = web.WebSocketResponse()
+    await ws.prepare(request)
+
+    await session.connect(player_id, ws)
+    try:
+        async for msg in ws:
+            if msg.type == WSMsgType.TEXT:
+                await session.handle(player_id, msg.data)
+            elif msg.type in (WSMsgType.ERROR, WSMsgType.CLOSE):
+                break
+    finally:
+        await session.disconnect(player_id)
+
+    return ws
+
+
+async def _token_handler(request: web.Request) -> web.Response:
+    """POST /token — exchange Discord OAuth2 code for access token.
+
+    Expected JSON body:
+      code  str  Authorization code from the Discord SDK authorize() call.
+    """
+    body = await request.json()
+    code = body.get('code', '').strip()
+    if not code:
+        raise web.HTTPBadRequest(reason='Missing code')
+
+    async with aiohttp.ClientSession() as session:
+        resp = await session.post(
+            'https://discord.com/api/oauth2/token',
+            data={
+                'client_id': config.discord_client_id,
+                'client_secret': config.discord_client_secret,
+                'grant_type': 'authorization_code',
+                'code': code,
+            },
+        )
+        if resp.status != 200:
+            text = await resp.text()
+            logger.warning('Discord token exchange failed (%d): %s', resp.status, text)
+            raise web.HTTPBadGateway(reason='Discord token exchange failed')
+        data = await resp.json()
+
+    return web.json_response({'access_token': data['access_token']})
+
+
+async def _create_session(request: web.Request) -> web.Response:
+    """POST /sessions — create a game session.
+
+    Expected JSON body:
+      channel_id    str           Unique channel identifier
+      siq_path      str           Path to the .siq file on the server
+      player_ids    list[str]     Ordered list of player IDs
+      player_names  dict[str,str] player_id → display name
+      buzz_window_ms int          Optional; default 0
+    """
+    body = await request.json()
+
+    required = {'channel_id', 'siq_path', 'player_ids', 'player_names', 'host_id'}
+    missing = required - body.keys()
+    if missing:
+        raise web.HTTPBadRequest(reason=f'Missing fields: {", ".join(sorted(missing))}')
+
+    channel_id: str = body['channel_id']
+    sessions: dict[str, GameSession] = request.app['sessions']
+    if channel_id in sessions:
+        raise web.HTTPConflict(reason=f'Session {channel_id!r} already exists')
+
+    try:
+        package = load(body['siq_path']).package
+    except Exception as exc:
+        raise web.HTTPUnprocessableEntity(reason=f'Failed to load .siq: {exc}') from exc
+
+    settings = Settings(buzz_window_ms=int(body.get('buzz_window_ms', 0)))
+    try:
+        game = GameMachine(package, body['player_ids'], body['player_names'], settings)
+    except (ValueError, KeyError) as exc:
+        raise web.HTTPUnprocessableEntity(reason=str(exc)) from exc
+
+    session = GameSession(channel_id, game, body['siq_path'], body['host_id'])
+    session.save()
+    sessions[channel_id] = session
+    logger.info('Session created for channel %r', channel_id)
+    return web.json_response({'channel_id': channel_id}, status=201)
+
+
+def _make_media_handler(trusted_folder: str):
+    """Return a handler for /media/{channel_id}/FOLDER/{filename}.
+
+    trusted_folder is a compile-time constant (Images, Audio, or Video), so
+    the constructed filesystem path is never derived from user input.
+    """
+
+    async def _handler(request: web.Request) -> web.Response:
+        channel_id = request.match_info['channel_id']
+        # Use only the basename — strips any traversal sequences.
+        # The result is used for name comparison only, never in path construction.
+        raw_name = os.path.basename(
+            urllib.parse.unquote(request.match_info['filename'])
+        )
+        if not raw_name:
+            raise web.HTTPForbidden(reason='Invalid filename')
+
+        sessions: dict[str, GameSession] = request.app['sessions']
+        session = sessions.get(channel_id)
+        if session is None:
+            raise web.HTTPNotFound(reason=f'No session for channel {channel_id!r}')
+
+        # trusted_folder is a closure constant — folder_path contains no user input,
+        # so os.scandir entries and match.path are not user-tainted.
+        folder_path = pathlib.Path(session.media_dir) / trusted_folder
+        try:
+            match = next(
+                (
+                    e
+                    for e in os.scandir(folder_path)
+                    if e.name == raw_name and e.is_file()
+                ),
+                None,
+            )
+        except OSError:
+            match = None
+        if match is None:
+            raise web.HTTPNotFound(
+                reason=f'File {raw_name!r} not found in {trusted_folder}'
+            )
+
+        return web.FileResponse(match.path)
+
+    return _handler
+
+
+async def _get_session(request: web.Request) -> web.Response:
+    """GET /sessions/{channel_id} — check whether a session exists."""
+    channel_id = request.match_info['channel_id']
+    sessions: dict[str, GameSession] = request.app['sessions']
+    if channel_id not in sessions:
+        raise web.HTTPNotFound(reason=f'No session for channel {channel_id!r}')
+    return web.json_response({'channel_id': channel_id})
+
+
+async def _list_packs(request: web.Request) -> web.Response:
+    """GET /packs — list available .siq pack files from the packs directory."""
+    packs_dir = pathlib.Path(config.kvizgame_packs_dir)
+    if not packs_dir.is_dir():
+        return web.json_response([])
+    packs = [{'name': p.name, 'path': str(p)} for p in sorted(packs_dir.glob('*.siq'))]
+    return web.json_response(packs)
+
+
+async def _delete_session(request: web.Request) -> web.Response:
+    """DELETE /sessions/{channel_id} — remove a session."""
+    channel_id = request.match_info['channel_id']
+    sessions: dict[str, GameSession] = request.app['sessions']
+    session = sessions.pop(channel_id, None)
+    if session is None:
+        raise web.HTTPNotFound(reason=f'No session for channel {channel_id!r}')
+    session.delete_saved()
+    logger.info('Session removed for channel %r', channel_id)
+    return web.Response(status=204)
+
+
+async def _on_startup(app: web.Application) -> None:
+    active = {s.media_dir for s in app['sessions'].values() if s.media_dir}
+    cleanup_stale_media_dirs(active)
+
+
+async def _on_cleanup(app: web.Application) -> None:
+    # Media dirs for surviving sessions are cleaned now; load() will re-extract
+    # them if the server restarts with saved sessions still on disk.
+    active = {s.media_dir for s in app['sessions'].values() if s.media_dir}
+    cleanup_stale_media_dirs(active)
+
+
+def create_app(sessions: dict | None = None) -> web.Application:
+    """Create and return the aiohttp application.
+
+    The session registry lives in app['sessions'] as a plain dict so
+    tests can inspect or pre-populate it directly.
+
+    Args:
+        sessions: Optional external sessions dict to share with the Discord cog.
+                  If None, a new empty dict is created.
+    """
+    app = web.Application()
+    app['sessions'] = sessions if sessions is not None else {}
+    app.on_startup.append(_on_startup)
+    app.on_cleanup.append(_on_cleanup)
+    app.router.add_post('/token', _token_handler)
+    app.router.add_get('/packs', _list_packs)
+    app.router.add_get('/sessions/{channel_id}', _get_session)
+    app.router.add_post('/sessions', _create_session)
+    app.router.add_delete('/sessions/{channel_id}', _delete_session)
+    for _folder in _MEDIA_FOLDERS:
+        app.router.add_get(
+            f'/media/{{channel_id}}/{_folder}/{{filename}}',
+            _make_media_handler(_folder),
+        )
+    app.router.add_get('/ws/{channel_id}', _ws_handler)
+    if config.kvizgame_frontend_dir:
+        _frontend = pathlib.Path(config.kvizgame_frontend_dir)
+        _cfg_json = _json.dumps(
+            {
+                'clientId': config.discord_client_id,
+                'proxyTarget': config.discord_proxy_target,
+            }
+        )
+        _config_script = f'<script>window.__KVIZGAME_CONFIG__={_cfg_json}</script>'
+        _index_html = (_frontend / 'index.html').read_text()
+        _index_html = _index_html.replace('</head>', f'{_config_script}</head>', 1)
+
+        async def _index(request: web.Request) -> web.Response:
+            return web.Response(text=_index_html, content_type='text/html')
+
+        app.router.add_get('/', _index)
+        app.router.add_static('/assets', _frontend / 'assets')
+    return app

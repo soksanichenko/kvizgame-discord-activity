@@ -34,7 +34,7 @@ export function FinalQuestion({ state, channelId, playerId, isHost, send }: Fina
           const folder = MEDIA_FOLDER[atom.type];
           if (folder) {
             const filename = atom.content.replace(/^@/, '');
-            const url = `/api/media/${channelId}/${folder}/${encodeURIComponent(filename)}`;
+            const url = `/api/media/packs/${state.pack_stem}/${folder}/${encodeURIComponent(filename)}`;
             if (atom.type === 'image') return <img key={i} src={url} style={{ maxWidth: '100%', maxHeight: 300, objectFit: 'contain' }} />;
             if (atom.type === 'audio' || atom.type === 'voice') return <audio key={i} autoPlay controls src={url} style={{ width: '100%', maxWidth: 500 }} />;
             if (atom.type === 'video') return <video key={i} autoPlay controls src={url} style={{ maxWidth: '100%', maxHeight: 300 }} />;

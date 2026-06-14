@@ -44,6 +44,7 @@ export interface FinalJudgmentQuestion {
 export interface GameState {
   phase: Phase;
   host_id: string;
+  pack_stem: string;
   paused: boolean;
   appeal_by: string | null;
   last_judged_id: string | null;

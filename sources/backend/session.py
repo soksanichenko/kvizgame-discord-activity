@@ -7,7 +7,6 @@ import json
 import logging
 import pathlib
 import shutil
-import tempfile
 import urllib.parse
 import zipfile
 from typing import Any
@@ -22,27 +21,27 @@ from backend.protocol import In, Out, decode, encode
 logger = logging.getLogger(__name__)
 
 _MEDIA_FOLDERS = frozenset({"Images", "Audio", "Video"})
-_MEDIA_DIR_PREFIX = "kvizgame_media_"
 
 
 def cleanup_stale_media_dirs(active_dirs: set[str]) -> None:
-    """Remove /tmp/kvizgame_media_* directories not referenced by any active session.
+    """Remove extracted pack media dirs whose source .siq file no longer exists.
 
-    Call this on server startup (to purge remnants of previous runs) and on
-    server shutdown (to purge dirs for sessions that won't be resumed).
+    Call this on server startup and shutdown. active_dirs is kept for API
+    compatibility but is unused — cleanup is now determined by which .siq
+    files exist in packs_dir, not by active sessions.
 
     Args:
-        active_dirs: Set of media_dir paths currently in use; these are kept.
+        active_dirs: Unused; kept for backwards-compatible call sites.
     """
-    tmp = pathlib.Path(tempfile.gettempdir())
-    for entry in tmp.iterdir():
-        if (
-            entry.is_dir()
-            and entry.name.startswith(_MEDIA_DIR_PREFIX)
-            and str(entry) not in active_dirs
-        ):
+    packs_media = pathlib.Path(_config.kvizgame_sessions_dir) / "packs"
+    if not packs_media.is_dir():
+        return
+    packs_dir = pathlib.Path(_config.kvizgame_packs_dir)
+    existing_stems = {p.stem for p in packs_dir.glob("*.siq")} if packs_dir.is_dir() else set()
+    for entry in packs_media.iterdir():
+        if entry.is_dir() and entry.name not in existing_stems:
             shutil.rmtree(entry, ignore_errors=True)
-            logger.debug("Removed stale media dir %s", entry)
+            logger.debug("Removed stale pack media dir %s", entry)
 
 
 # How long to wait for any buzz before auto-closing (both window modes).
@@ -101,13 +100,22 @@ class GameSession:
     # ------------------------------------------------------------------
 
     def _extract_media(self) -> str:
-        """Extract media folders from the .siq archive into a fresh temp directory.
+        """Extract media folders from the .siq archive into a pack-specific directory.
 
-        Uses metadata_encoding='cp866' so Cyrillic filenames stored without the
-        UTF-8 flag (common in Russian SIGame packs) are decoded correctly.
-        Entries that carry the UTF-8 flag are unaffected by metadata_encoding.
+        Media is stored at {sessions_dir}/packs/{pack_stem}/ so that multiple
+        sessions using the same pack share a single extraction, enabling CF edge
+        caching at stable pack-level URLs (/media/packs/{pack_stem}/...).
+
+        If the directory already exists (pack was previously extracted), extraction
+        is skipped. Uses metadata_encoding='cp866' so Cyrillic filenames stored
+        without the UTF-8 flag are decoded correctly.
         """
-        dest = tempfile.mkdtemp(prefix="kvizgame_media_")
+        pack_stem = pathlib.Path(self._siq_path).stem
+        dest = pathlib.Path(_config.kvizgame_sessions_dir) / "packs" / pack_stem
+        if dest.is_dir():
+            logger.debug("Reusing extracted media for pack %r at %s", pack_stem, dest)
+            return str(dest)
+        dest.mkdir(parents=True, exist_ok=True)
         with zipfile.ZipFile(self._siq_path, metadata_encoding="cp866") as zf:
             members = [
                 m
@@ -120,21 +128,20 @@ class GameSession:
                 decoded = urllib.parse.unquote(member)
                 folder = decoded.split("/")[0]  # already validated in _MEDIA_FOLDERS
                 # Use only the basename — strips any path-traversal sequences.
-                # SIQ archives have a flat structure (Images/file.jpg), so no data lost.
                 filename = pathlib.Path(decoded).name
                 if not filename:
                     continue
-                target = pathlib.Path(dest) / folder / filename
+                target = dest / folder / filename
                 target.parent.mkdir(parents=True, exist_ok=True)
                 with zf.open(member) as src, target.open("wb") as dst:
                     shutil.copyfileobj(src, dst)
         logger.debug(
-            "Extracted %d media files for session %r to %s",
+            "Extracted %d media files for pack %r to %s",
             len(members),
-            self._channel_id,
+            pack_stem,
             dest,
         )
-        return dest
+        return str(dest)
 
     # ------------------------------------------------------------------
     # Persistence
@@ -158,12 +165,13 @@ class GameSession:
         (sessions_dir / f"{int(self._channel_id)}.json").write_text(json.dumps(data))
 
     def delete_saved(self) -> None:
-        """Remove the saved session file and extracted media directory."""
+        """Remove the saved session file.
+
+        Pack media is shared across sessions and cleaned up by
+        cleanup_stale_media_dirs() when the .siq file is deleted.
+        """
         path = pathlib.Path(_config.kvizgame_sessions_dir) / f"{int(self._channel_id)}.json"
         path.unlink(missing_ok=True)
-        if self._media_dir:
-            shutil.rmtree(self._media_dir, ignore_errors=True)
-            self._media_dir = ""
 
     @classmethod
     def load(cls, path: pathlib.Path) -> GameSession:
@@ -468,6 +476,7 @@ class GameSession:
         return {
             "phase": phase.name,
             "host_id": self._host_id,
+            "pack_stem": pathlib.Path(self._siq_path).stem,
             "paused": self._paused,
             "appeal_by": self._appeal_by,
             "last_judged_id": game.last_wrong_judged_id,

@@ -63,7 +63,7 @@ export function Question({ state, channelId, playerId, isHost, send }: QuestionP
           const folder = MEDIA_FOLDER[atom.type];
           if (folder) {
             const filename = atom.content.replace(/^@/, '');
-            const url = `/api/media/${channelId}/${folder}/${encodeURIComponent(filename)}`;
+            const url = `/api/media/packs/${state.pack_stem}/${folder}/${encodeURIComponent(filename)}`;
             if (atom.type === 'image') {
               return <img key={i} src={url} style={{ maxWidth: '100%', maxHeight: 400, objectFit: 'contain' }} />;
             }

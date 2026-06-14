@@ -1,0 +1,60 @@
+---
+- name: Create kvizgame packs volume directory
+  ansible.builtin.file:
+    path: "{{ docker_lib_folder }}/{{ docker_volumes['packs']['path'] }}"
+    recurse: yes
+    state: directory
+  become: yes
+
+- name: Create kvizgame sessions volume directory
+  ansible.builtin.file:
+    path: "{{ docker_lib_folder }}/{{ docker_volumes['sessions']['path'] }}"
+    recurse: yes
+    state: directory
+  become: yes
+
+- name: Ensure Docker network exists
+  community.docker.docker_network:
+    name: "{{ docker_network }}"
+  become: yes
+
+- name: Deploy kvizgame container
+  community.docker.docker_container:
+    name: kvizgame
+    image: "ghcr.io/soksanichenko/kvizgame-discord-activity:{{ kvizgame_image_tag }}"
+    state: started
+    pull: "{{ kvizgame_image_pull }}"
+    recreate: yes
+    restart_policy: always
+    mounts:
+      - source: "{{ docker_lib_folder }}/{{ docker_volumes['packs']['path'] }}"
+        target: "/tmp/kvizgame-packs"
+        read_only: no
+        type: bind
+      - source: "{{ docker_lib_folder }}/{{ docker_volumes['sessions']['path'] }}"
+        target: "/tmp/kvizgame-sessions"
+        read_only: no
+        type: bind
+    published_ports:
+      - "127.0.0.1:{{ kvizgame_port }}:{{ kvizgame_port }}"
+    networks: "{{ [{'name': docker_network}] + docker_extra_networks }}"
+    env:
+      DISCORD_CLIENT_ID: "{{ discord_client_id }}"
+      DISCORD_CLIENT_SECRET: "{{ discord_client_secret }}"
+      DISCORD_PROXY_TARGET: "{{ discord_proxy_target }}"
+      KVIZGAME_PACKS_DIR: "/tmp/kvizgame-packs"
+      KVIZGAME_SESSIONS_DIR: "/tmp/kvizgame-sessions"
+      KVIZGAME_FRONTEND_DIR: "/code/frontend"
+    log_driver: journald
+  become: yes
+  no_log: true
+
+- name: Wait for kvizgame health endpoint
+  ansible.builtin.uri:
+    url: "http://127.0.0.1:{{ kvizgame_port }}/health"
+    status_code: 200
+  register: health_result
+  retries: 18
+  delay: 10
+  until: health_result.status == 200
+...

@@ -1,0 +1,9 @@
+---
+- name: Deploy kvizgame nginx location config
+  ansible.builtin.template:
+    src: kvizgame-locations.conf.j2
+    dest: "{{ nginx_custom_locations_path }}/kvizgame-locations.conf"
+    mode: "0644"
+  become: yes
+  notify: Restart Nginx container
+...

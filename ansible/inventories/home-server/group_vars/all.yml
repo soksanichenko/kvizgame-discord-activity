@@ -1,21 +1,9 @@
 ---
 infisical_project_id: "286db07f-4dba-4ca9-a515-f017d77b8bf1"
 infisical_path: "/hosts/home-server"
-discord_token: "{{ infisical_secrets.secrets['discord-bot-token'] }}"
-discord_client_id: "{{ infisical_secrets.secrets['discord-bot-client-id'] }}"
-discord_client_secret: "{{ infisical_secrets.secrets['discord-bot-client-secret'] }}"
-youtube_api_key: "{{ infisical_secrets.secrets['youtube-api-key'] }}"
-spotify_api_client_id: "{{ infisical_secrets.secrets['spotify-api-client-id'] }}"
-spotify_api_client_secret: "{{ infisical_secrets.secrets['spotify-api-client-secret'] }}"
-twitch_client_id: "{{ infisical_secrets.secrets['twitch-client-id-discord-bot'] }}"
-twitch_client_secret: "{{ infisical_secrets.secrets['twitch-secret-discord-bot'] }}"
-discord_bot_health_password: "{{ infisical_secrets.secrets['discord-bot-health-check-password'] }}"
-db_password: "{{ infisical_secrets.secrets['discord-bot-db-password'] }}"
-db_login: "meow-bot"
-db_host: postgresql
-db_port: 5432
-db_database: "meow-bot"
+discord_client_id: "{{ infisical_secrets.secrets['kvizgame-client-id'] }}"
+discord_client_secret: "{{ infisical_secrets.secrets['kvizgame-client-secret'] }}"
 discord_proxy_target: "homeserver.zelgray.work"
-bot_image_tag: "dev"
-bot_image_pull: "never"
+kvizgame_image_tag: "dev"
+kvizgame_image_pull: "never"
 ...

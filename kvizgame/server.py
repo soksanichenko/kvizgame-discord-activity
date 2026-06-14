@@ -175,6 +175,11 @@ async def _get_session(request: web.Request) -> web.Response:
     return web.json_response({'channel_id': channel_id})
 
 
+async def _health(request: web.Request) -> web.Response:
+    """GET /health — liveness probe for Ansible and load balancers."""
+    return web.json_response({'status': 'ok'})
+
+
 async def _list_packs(request: web.Request) -> web.Response:
     """GET /packs — list available .siq pack files from the packs directory."""
     packs_dir = pathlib.Path(config.kvizgame_packs_dir)
@@ -222,6 +227,7 @@ def create_app(sessions: dict | None = None) -> web.Application:
     app['sessions'] = sessions if sessions is not None else {}
     app.on_startup.append(_on_startup)
     app.on_cleanup.append(_on_cleanup)
+    app.router.add_get('/health', _health)
     app.router.add_post('/token', _token_handler)
     app.router.add_get('/packs', _list_packs)
     app.router.add_get('/sessions/{channel_id}', _get_session)

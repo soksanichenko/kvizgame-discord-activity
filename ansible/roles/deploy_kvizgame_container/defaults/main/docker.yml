@@ -1,0 +1,13 @@
+---
+docker_lib_folder: "/opt/docker"
+docker_volumes:
+  packs:
+    path: "volumes/kvizgame/packs"
+  sessions:
+    path: "volumes/kvizgame/sessions"
+docker_network: "active"
+docker_extra_networks: []
+kvizgame_port: 8082
+kvizgame_image_tag: "latest"
+kvizgame_image_pull: "always"
+...

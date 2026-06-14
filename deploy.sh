@@ -33,5 +33,5 @@ fi
 
 echo "=== Deploying ==="
 pushd "${PROJECT_DIR}/ansible" || exit 1
-ansible-playbook -i "${INVENTORY}" -vv "playbooks/deploy.yml" ${EXTRA_VARS}
+ansible-playbook -i "${INVENTORY}" -vv "playbooks/deploy.yml" "${EXTRA_VARS}"
 popd || exit 1

@@ -4,6 +4,6 @@ repos:
     rev: v0.15.13
     hooks:
       - id: ruff
-        args: [sources/backend/, main.py]
+        args: [sources/backend/, tests/, main.py]
       - id: ruff-format
-        args: [sources/backend/, main.py]
+        args: [sources/backend/, tests/, main.py]

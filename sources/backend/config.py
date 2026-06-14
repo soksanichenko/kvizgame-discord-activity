@@ -17,13 +17,13 @@ class Config(BaseSettings):
             Leave empty to disable frontend serving (e.g. when nginx serves it).
     """
 
-    discord_client_id: str = ''
-    discord_client_secret: str = ''
-    discord_proxy_target: str = ''
+    discord_client_id: str = ""
+    discord_client_secret: str = ""
+    discord_proxy_target: str = ""
     kvizgame_port: int = 8082
-    kvizgame_packs_dir: str = '/tmp/kvizgame-packs'
-    kvizgame_sessions_dir: str = '/tmp/kvizgame-sessions'
-    kvizgame_frontend_dir: str = ''
+    kvizgame_packs_dir: str = "/tmp/kvizgame-packs"
+    kvizgame_sessions_dir: str = "/tmp/kvizgame-sessions"
+    kvizgame_frontend_dir: str = ""
 
 
 config = Config()

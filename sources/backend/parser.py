@@ -18,10 +18,10 @@ from xml.etree import ElementTree as ET
 # Maps atom type to the archive folder holding its media files.
 # 'voice' is the v4 name; 'audio' is used in v5 packs.
 _MEDIA_FOLDERS: dict[str, str] = {
-    'image': 'Images',
-    'voice': 'Audio',
-    'audio': 'Audio',
-    'video': 'Video',
+    "image": "Images",
+    "voice": "Audio",
+    "audio": "Audio",
+    "video": "Video",
 }
 
 
@@ -37,7 +37,7 @@ class Atom:
     """
 
     type: str
-    content: str = ''
+    content: str = ""
     time: int = 0
 
     @property
@@ -50,8 +50,8 @@ class Atom:
         """Archive-relative path to the media file, or None for text atoms."""
         if not self.is_media:
             return None
-        filename = self.content.lstrip('@')
-        return f'{_MEDIA_FOLDERS[self.type]}/{filename}'
+        filename = self.content.lstrip("@")
+        return f"{_MEDIA_FOLDERS[self.type]}/{filename}"
 
 
 @dataclass
@@ -68,7 +68,7 @@ class Question:
     """
 
     price: int
-    q_type: str = 'simple'
+    q_type: str = "simple"
     type_params: dict[str, str] = field(default_factory=dict)
     scenario: list[Atom] = field(default_factory=list)
     right: list[str] = field(default_factory=list)
@@ -115,7 +115,7 @@ class PackageInfo:
 
     authors: list[str] = field(default_factory=list)
     sources: list[str] = field(default_factory=list)
-    comments: str = ''
+    comments: str = ""
 
 
 @dataclass
@@ -134,7 +134,7 @@ class Package:
     rounds: list[Round] = field(default_factory=list)
     info: PackageInfo = field(default_factory=PackageInfo)
     difficulty: int = 5
-    language: str = ''
+    language: str = ""
 
 
 class SiqPackage:
@@ -168,7 +168,7 @@ class SiqPackage:
             KeyError: If the file is missing from the archive.
         """
         if not atom.is_media:
-            raise ValueError(f'Atom type {atom.type!r} has no associated media file')
+            raise ValueError(f"Atom type {atom.type!r} has no associated media file")
         with zipfile.ZipFile(self._path) as zf:
             return zf.read(atom.media_path)
 
@@ -183,7 +183,7 @@ class SiqPackage:
             return sorted(
                 name
                 for name in zf.namelist()
-                if name.split('/')[0] in folders and not name.endswith('/')
+                if name.split("/")[0] in folders and not name.endswith("/")
             )
 
 
@@ -203,7 +203,7 @@ def load(path: str | Path) -> SiqPackage:
     """
     path = Path(path)
     with zipfile.ZipFile(path) as zf:
-        with zf.open('content.xml') as fp:
+        with zf.open("content.xml") as fp:
             root = ET.parse(fp).getroot()
     _strip_namespace(root)
     package = _parse_package(root)
@@ -223,93 +223,91 @@ def _strip_namespace(el: ET.Element) -> None:
     regardless of whether the file declares xmlns=.
     """
     for node in el.iter():
-        if '}' in node.tag:
-            node.tag = node.tag.split('}', 1)[1]
+        if "}" in node.tag:
+            node.tag = node.tag.split("}", 1)[1]
 
 
 def _parse_package(el: ET.Element) -> Package:
-    difficulty_str = el.get('difficulty', '5')
+    difficulty_str = el.get("difficulty", "5")
     return Package(
-        name=el.get('name', ''),
+        name=el.get("name", ""),
         difficulty=int(difficulty_str) if difficulty_str.isdigit() else 5,
-        language=el.get('language', ''),
+        language=el.get("language", ""),
         info=_parse_info(el),
-        rounds=[_parse_round(r) for r in el.findall('./rounds/round')],
+        rounds=[_parse_round(r) for r in el.findall("./rounds/round")],
     )
 
 
 def _parse_info(el: ET.Element) -> PackageInfo:
     info = PackageInfo()
-    el_info = el.find('info')
+    el_info = el.find("info")
     if el_info is None:
         return info
-    info.authors = [a.text or '' for a in el_info.findall('./authors/author')]
-    info.sources = [s.text or '' for s in el_info.findall('./sources/source')]
-    el_comments = el_info.find('comments')
+    info.authors = [a.text or "" for a in el_info.findall("./authors/author")]
+    info.sources = [s.text or "" for s in el_info.findall("./sources/source")]
+    el_comments = el_info.find("comments")
     if el_comments is not None:
-        info.comments = el_comments.text or ''
+        info.comments = el_comments.text or ""
     return info
 
 
 def _parse_round(el: ET.Element) -> Round:
     return Round(
-        name=el.get('name', ''),
-        is_final=el.get('type') == 'final',
-        themes=[_parse_theme(t) for t in el.findall('./themes/theme')],
+        name=el.get("name", ""),
+        is_final=el.get("type") == "final",
+        themes=[_parse_theme(t) for t in el.findall("./themes/theme")],
     )
 
 
 def _parse_theme(el: ET.Element) -> Theme:
     return Theme(
-        name=el.get('name', ''),
-        questions=[_parse_question(q) for q in el.findall('./questions/question')],
+        name=el.get("name", ""),
+        questions=[_parse_question(q) for q in el.findall("./questions/question")],
     )
 
 
 def _parse_question(el: ET.Element) -> Question:
-    price_str = el.get('price', '0')
+    price_str = el.get("price", "0")
     question = Question(
-        price=int(price_str) if price_str.lstrip('-').isdigit() else 0,
+        price=int(price_str) if price_str.lstrip("-").isdigit() else 0,
     )
 
     # v4: <type name="auction"> / v5: no separate type element (type in <params>)
-    el_type = el.find('type')
+    el_type = el.find("type")
     if el_type is not None:
-        question.q_type = el_type.get('name', 'simple')
-        question.type_params = {
-            p.get('name', ''): (p.text or '') for p in el_type.findall('param')
-        }
+        question.q_type = el_type.get("name", "simple")
+        question.type_params = {p.get("name", ""): (p.text or "") for p in el_type.findall("param")}
 
     # v4: <scenario><atom>  /  v5: <params><param name="question"><item>
-    if el.find('scenario') is not None:
-        question.scenario = [_parse_atom(a) for a in el.findall('./scenario/atom')]
+    if el.find("scenario") is not None:
+        question.scenario = [_parse_atom(a) for a in el.findall("./scenario/atom")]
     else:
         question.scenario = [
             _parse_item(i) for i in el.findall('./params/param[@name="question"]/item')
         ]
 
-    question.right = [a.text or '' for a in el.findall('./right/answer')]
-    question.wrong = [a.text or '' for a in el.findall('./wrong/answer')]
+    question.right = [a.text or "" for a in el.findall("./right/answer")]
+    question.wrong = [a.text or "" for a in el.findall("./wrong/answer")]
     return question
 
 
 def _parse_atom(el: ET.Element) -> Atom:
     """Parse a v4 <atom> element."""
-    time_str = el.get('time', '0')
+    time_str = el.get("time", "0")
     return Atom(
-        type=el.get('type', 'text'),
-        content=el.text or '',
+        type=el.get("type", "text"),
+        content=el.text or "",
         time=int(time_str) if time_str.isdigit() else 0,
     )
 
 
 def _parse_item(el: ET.Element) -> Atom:
     """Parse a v5 <item> element inside <param name="question">."""
-    item_type = el.get('type', 'text')
+    item_type = el.get("type", "text")
     # v5 uses 'text' for plain items (no type attr), same media types as v4
-    time_str = el.get('duration', '0')
+    time_str = el.get("duration", "0")
     return Atom(
         type=item_type,
-        content=el.text or '',
+        content=el.text or "",
         time=int(time_str) if time_str.isdigit() else 0,
     )

@@ -6,8 +6,8 @@ import zipfile
 
 import pytest
 
-os.environ.setdefault('DISCORD_CLIENT_ID', 'test')
-os.environ.setdefault('DISCORD_CLIENT_SECRET', 'test')
+os.environ.setdefault("DISCORD_CLIENT_ID", "test")
+os.environ.setdefault("DISCORD_CLIENT_SECRET", "test")
 
 from backend.parser import Atom, Package, Question, Round, Theme  # noqa: E402
 
@@ -39,10 +39,10 @@ _MINIMAL_XML = """\
 @pytest.fixture
 def minimal_siq(tmp_path):
     """A minimal .siq archive on disk with two questions in one theme."""
-    siq_path = tmp_path / 'test.siq'
+    siq_path = tmp_path / "test.siq"
     buf = io.BytesIO()
-    with zipfile.ZipFile(buf, 'w') as zf:
-        zf.writestr('content.xml', _MINIMAL_XML)
+    with zipfile.ZipFile(buf, "w") as zf:
+        zf.writestr("content.xml", _MINIMAL_XML)
     siq_path.write_bytes(buf.getvalue())
     return siq_path
 
@@ -51,23 +51,23 @@ def minimal_siq(tmp_path):
 def minimal_package():
     """In-memory Package with two simple questions; no file I/O needed."""
     return Package(
-        name='Test Pack',
+        name="Test Pack",
         rounds=[
             Round(
-                name='Round 1',
+                name="Round 1",
                 themes=[
                     Theme(
-                        name='Animals',
+                        name="Animals",
                         questions=[
                             Question(
                                 price=100,
-                                scenario=[Atom(type='text', content='What sound does a cat make?')],
-                                right=['meow'],
+                                scenario=[Atom(type="text", content="What sound does a cat make?")],
+                                right=["meow"],
                             ),
                             Question(
                                 price=200,
-                                scenario=[Atom(type='text', content='What sound does a dog make?')],
-                                right=['woof'],
+                                scenario=[Atom(type="text", content="What sound does a dog make?")],
+                                right=["woof"],
                             ),
                         ],
                     )

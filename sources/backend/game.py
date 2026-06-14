@@ -98,7 +98,7 @@ class GameMachine:
         settings: Settings | None = None,
     ) -> None:
         if not player_ids:
-            raise ValueError('At least 1 player required')
+            raise ValueError("At least 1 player required")
 
         self._settings = settings or Settings()
         self._players: dict[str, Player] = {
@@ -109,7 +109,7 @@ class GameMachine:
 
         self._rounds = [r for r in package.rounds if not r.is_final]
         if not self._rounds:
-            raise ValueError('Package has no playable (non-final) rounds')
+            raise ValueError("Package has no playable (non-final) rounds")
         final_rounds = [r for r in package.rounds if r.is_final]
         self._final_round: Round | None = final_rounds[0] if final_rounds else None
 
@@ -127,7 +127,7 @@ class GameMachine:
         self._phase = Phase.BOARD
 
         # Final round state (populated when entering FINAL_BID)
-        self._final_theme_name: str = ''
+        self._final_theme_name: str = ""
         self._final_question: Question | None = None
         self._final_bids: dict[str, int] = {}
         self._final_answers: dict[str, str] = {}
@@ -217,8 +217,8 @@ class GameMachine:
     def final_current_answer(self) -> str:
         """Answer of the player currently being judged."""
         if self._final_current_judge_id is None:
-            return ''
-        return self._final_answers.get(self._final_current_judge_id, '')
+            return ""
+        return self._final_answers.get(self._final_current_judge_id, "")
 
     def final_current_bid(self) -> int:
         """Bid of the player currently being judged."""
@@ -230,9 +230,7 @@ class GameMachine:
     # Phase: BOARD
     # ------------------------------------------------------------------
 
-    def select_question(
-        self, player_id: str, theme_idx: int, question_idx: int
-    ) -> Phase:
+    def select_question(self, player_id: str, theme_idx: int, question_idx: int) -> Phase:
         """Active player selects a question from the board.
 
         Args:
@@ -248,16 +246,16 @@ class GameMachine:
         """
         self._require_phase(Phase.BOARD)
         if player_id != self.active_player_id:
-            raise GameError(f'{player_id!r} is not the active player')
+            raise GameError(f"{player_id!r} is not the active player")
 
         round_ = self.current_round
         if theme_idx >= len(round_.themes):
-            raise GameError(f'theme_idx {theme_idx} out of range')
+            raise GameError(f"theme_idx {theme_idx} out of range")
         theme = round_.themes[theme_idx]
         if question_idx >= len(theme.questions):
-            raise GameError(f'question_idx {question_idx} out of range')
+            raise GameError(f"question_idx {question_idx} out of range")
         if (theme_idx, question_idx) in self._board:
-            raise GameError('Question already played')
+            raise GameError("Question already played")
 
         question = theme.questions[question_idx]
         self._board.add((theme_idx, question_idx))
@@ -269,9 +267,9 @@ class GameMachine:
         )
         self._reset_for_new_question()
 
-        if question.q_type == 'auction':
+        if question.q_type == "auction":
             self._phase = Phase.AUCTION_BIDDING
-        elif question.q_type in ('cat', 'bagcat'):
+        elif question.q_type in ("cat", "bagcat"):
             self._phase = Phase.CAT_TRANSFER
         else:
             self._phase = Phase.QUESTION
@@ -297,11 +295,11 @@ class GameMachine:
         """
         self._require_phase(Phase.AUCTION_BIDDING)
         if player_id != self.active_player_id:
-            raise GameError('Only the active player bids in an auction')
+            raise GameError("Only the active player bids in an auction")
 
         min_bid = max(1, self._current_question.question.price)
         if amount < min_bid:
-            raise GameError(f'Bid must be at least {min_bid}')
+            raise GameError(f"Bid must be at least {min_bid}")
 
         self._auction_bid = amount
         self._current_answerer_id = player_id
@@ -324,11 +322,11 @@ class GameMachine:
         """
         self._require_phase(Phase.CAT_TRANSFER)
         if player_id != self.active_player_id:
-            raise GameError('Only the active player transfers the cat')
+            raise GameError("Only the active player transfers the cat")
         if recipient_id == player_id:
-            raise GameError('Cannot transfer the cat to yourself')
+            raise GameError("Cannot transfer the cat to yourself")
         if recipient_id not in self._players:
-            raise GameError(f'Unknown player {recipient_id!r}')
+            raise GameError(f"Unknown player {recipient_id!r}")
 
         self._current_answerer_id = recipient_id
         self._phase = Phase.QUESTION
@@ -373,7 +371,7 @@ class GameMachine:
         """
         self._require_phase(Phase.BUZZER_OPEN)
         if player_id not in self._players:
-            raise GameError(f'Unknown player {player_id!r}')
+            raise GameError(f"Unknown player {player_id!r}")
         if self._players[player_id]._wrong_this_question:
             return False
         if player_id not in self._buzzes:
@@ -392,19 +390,13 @@ class GameMachine:
             (phase becomes ANSWER_RESULT).
         """
         self._require_phase(Phase.BUZZER_OPEN)
-        eligible = [
-            pid for pid in self._buzzes if not self._players[pid]._wrong_this_question
-        ]
+        eligible = [pid for pid in self._buzzes if not self._players[pid]._wrong_this_question]
 
         if not eligible:
             self._phase = Phase.ANSWER_RESULT
             return None
 
-        winner = (
-            random.choice(eligible)
-            if self._settings.buzz_window_ms > 0
-            else eligible[0]
-        )
+        winner = random.choice(eligible) if self._settings.buzz_window_ms > 0 else eligible[0]
         self._current_answerer_id = winner
         self._phase = Phase.ANSWERING
         return winner
@@ -432,7 +424,7 @@ class GameMachine:
         self._require_phase(Phase.ANSWERING)
         player = self._players[self._current_answerer_id]
         question = self._current_question.question
-        stake = self._auction_bid if question.q_type == 'auction' else question.price
+        stake = self._auction_bid if question.q_type == "auction" else question.price
 
         self._last_judged_id = player.id
         self._last_judged_stake = stake
@@ -447,7 +439,7 @@ class GameMachine:
             player._wrong_this_question = True
             self._current_answerer_id = None
 
-            fixed_answerer_type = question.q_type in ('cat', 'bagcat', 'auction')
+            fixed_answerer_type = question.q_type in ("cat", "bagcat", "auction")
             can_buzz = not fixed_answerer_type and any(
                 not p._wrong_this_question for p in self._players.values()
             )
@@ -490,7 +482,7 @@ class GameMachine:
         """
         self._require_phase(Phase.ANSWER_RESULT)
         if self._last_judged_id is None or self._last_judged_correct:
-            raise GameError('No wrong judgment to appeal')
+            raise GameError("No wrong judgment to appeal")
         player = self._players[self._last_judged_id]
         player.score += self._last_judged_stake * 2
         player._wrong_this_question = False
@@ -537,10 +529,8 @@ class GameMachine:
         self._final_judgment_queue = []
         self._final_current_judge_id = None
         theme = self._final_round.themes[0] if self._final_round.themes else None
-        self._final_theme_name = theme.name if theme else ''
-        self._final_question = (
-            theme.questions[0] if (theme and theme.questions) else None
-        )
+        self._final_theme_name = theme.name if theme else ""
+        self._final_question = theme.questions[0] if (theme and theme.questions) else None
         self._phase = Phase.FINAL_BID
 
     def place_final_bid(self, player_id: str, amount: int) -> Phase:
@@ -555,11 +545,11 @@ class GameMachine:
         """
         self._require_phase(Phase.FINAL_BID)
         if player_id not in self._players:
-            raise GameError(f'Unknown player {player_id!r}')
+            raise GameError(f"Unknown player {player_id!r}")
         if player_id in self._final_bids:
-            raise GameError('Already placed a bid')
+            raise GameError("Already placed a bid")
         if amount < 1:
-            raise GameError('Bid must be at least 1')
+            raise GameError("Bid must be at least 1")
         self._final_bids[player_id] = amount
         if set(self._final_bids) == set(self._players):
             self._phase = Phase.FINAL_QUESTION
@@ -578,7 +568,7 @@ class GameMachine:
         """
         self._require_phase(Phase.FINAL_QUESTION)
         if player_id not in self._players:
-            raise GameError(f'Unknown player {player_id!r}')
+            raise GameError(f"Unknown player {player_id!r}")
         self._final_answers[player_id] = answer.strip()
 
     def start_final_judging(self) -> Phase:
@@ -592,9 +582,7 @@ class GameMachine:
         self._final_current_judge_id = (
             self._final_judgment_queue.pop(0) if self._final_judgment_queue else None
         )
-        self._phase = (
-            Phase.FINAL_JUDGING if self._final_current_judge_id else Phase.GAME_OVER
-        )
+        self._phase = Phase.FINAL_JUDGING if self._final_current_judge_id else Phase.GAME_OVER
         return self._phase
 
     # ------------------------------------------------------------------
@@ -612,16 +600,14 @@ class GameMachine:
         """
         self._require_phase(Phase.FINAL_JUDGING)
         if self._final_current_judge_id is None:
-            raise GameError('No player to judge')
+            raise GameError("No player to judge")
         player = self._players[self._final_current_judge_id]
         bid = self._final_bids.get(self._final_current_judge_id, 0)
         player.score += bid if correct else -bid
         self._final_current_judge_id = (
             self._final_judgment_queue.pop(0) if self._final_judgment_queue else None
         )
-        self._phase = (
-            Phase.FINAL_JUDGING if self._final_current_judge_id else Phase.GAME_OVER
-        )
+        self._phase = Phase.FINAL_JUDGING if self._final_current_judge_id else Phase.GAME_OVER
         return self._phase
 
     # ------------------------------------------------------------------
@@ -639,53 +625,51 @@ class GameMachine:
         """
         unknown = set(adjustments) - set(self._players)
         if unknown:
-            raise GameError(f'Unknown player(s): {", ".join(sorted(unknown))}')
+            raise GameError(f"Unknown player(s): {', '.join(sorted(unknown))}")
         for pid, delta in adjustments.items():
             self._players[pid].score += delta
 
     def _require_phase(self, expected: Phase) -> None:
         if self._phase != expected:
-            raise GameError(
-                f'Action requires phase {expected.name}, current is {self._phase.name}'
-            )
+            raise GameError(f"Action requires phase {expected.name}, current is {self._phase.name}")
 
     def to_dict(self) -> dict[str, Any]:
         """Serialize game state to a JSON-compatible dict."""
         return {
-            'settings': {'buzz_window_ms': self._settings.buzz_window_ms},
-            'players': [
+            "settings": {"buzz_window_ms": self._settings.buzz_window_ms},
+            "players": [
                 {
-                    'id': p.id,
-                    'name': p.name,
-                    'score': p.score,
-                    'wrong_this_question': p._wrong_this_question,
+                    "id": p.id,
+                    "name": p.name,
+                    "score": p.score,
+                    "wrong_this_question": p._wrong_this_question,
                 }
                 for p in self._players.values()
             ],
-            'player_order': self._player_order,
-            'active_player_idx': self._active_player_idx,
-            'round_idx': self._round_idx,
-            'board': [list(pair) for pair in self._board],
-            'phase': self._phase.name,
-            'current_question': (
+            "player_order": self._player_order,
+            "active_player_idx": self._active_player_idx,
+            "round_idx": self._round_idx,
+            "board": [list(pair) for pair in self._board],
+            "phase": self._phase.name,
+            "current_question": (
                 {
-                    'theme_idx': self._current_question.theme_idx,
-                    'question_idx': self._current_question.question_idx,
-                    'theme_name': self._current_question.theme_name,
+                    "theme_idx": self._current_question.theme_idx,
+                    "question_idx": self._current_question.question_idx,
+                    "theme_name": self._current_question.theme_name,
                 }
                 if self._current_question is not None
                 else None
             ),
-            'current_answerer_id': self._current_answerer_id,
-            'auction_bid': self._auction_bid,
-            'buzzes': list(self._buzzes),
-            'last_judged_id': self._last_judged_id,
-            'last_judged_stake': self._last_judged_stake,
-            'last_judged_correct': self._last_judged_correct,
-            'final_bids': self._final_bids,
-            'final_answers': self._final_answers,
-            'final_judgment_queue': self._final_judgment_queue,
-            'final_current_judge_id': self._final_current_judge_id,
+            "current_answerer_id": self._current_answerer_id,
+            "auction_bid": self._auction_bid,
+            "buzzes": list(self._buzzes),
+            "last_judged_id": self._last_judged_id,
+            "last_judged_stake": self._last_judged_stake,
+            "last_judged_correct": self._last_judged_correct,
+            "final_bids": self._final_bids,
+            "final_answers": self._final_answers,
+            "final_judgment_queue": self._final_judgment_queue,
+            "final_current_judge_id": self._final_current_judge_id,
         }
 
     @classmethod
@@ -697,55 +681,53 @@ class GameMachine:
             data: Serialized state dict.
         """
         obj: GameMachine = cls.__new__(cls)
-        obj._settings = Settings(buzz_window_ms=data['settings']['buzz_window_ms'])
+        obj._settings = Settings(buzz_window_ms=data["settings"]["buzz_window_ms"])
         obj._players = {}
-        for p_data in data['players']:
-            p = Player(id=p_data['id'], name=p_data['name'], score=p_data['score'])
-            p._wrong_this_question = p_data['wrong_this_question']
+        for p_data in data["players"]:
+            p = Player(id=p_data["id"], name=p_data["name"], score=p_data["score"])
+            p._wrong_this_question = p_data["wrong_this_question"]
             obj._players[p.id] = p
-        obj._player_order = data['player_order']
-        obj._active_player_idx = data['active_player_idx']
+        obj._player_order = data["player_order"]
+        obj._active_player_idx = data["active_player_idx"]
         obj._rounds = [r for r in package.rounds if not r.is_final]
         final_rounds = [r for r in package.rounds if r.is_final]
         obj._final_round = final_rounds[0] if final_rounds else None
-        obj._round_idx = data['round_idx']
-        obj._board = {(pair[0], pair[1]) for pair in data['board']}
-        obj._phase = Phase[data['phase']]
+        obj._round_idx = data["round_idx"]
+        obj._board = {(pair[0], pair[1]) for pair in data["board"]}
+        obj._phase = Phase[data["phase"]]
 
-        cq_data = data.get('current_question')
+        cq_data = data.get("current_question")
         if cq_data is not None:
-            t_idx = cq_data['theme_idx']
-            q_idx = cq_data['question_idx']
+            t_idx = cq_data["theme_idx"]
+            q_idx = cq_data["question_idx"]
             theme = obj._rounds[obj._round_idx].themes[t_idx]
             obj._current_question = QuestionRef(
                 theme_idx=t_idx,
                 question_idx=q_idx,
-                theme_name=cq_data['theme_name'],
+                theme_name=cq_data["theme_name"],
                 question=theme.questions[q_idx],
             )
         else:
             obj._current_question = None
 
-        obj._current_answerer_id = data.get('current_answerer_id')
-        obj._auction_bid = data.get('auction_bid', 0)
-        obj._buzzes = data.get('buzzes', [])
-        obj._last_judged_id = data.get('last_judged_id')
-        obj._last_judged_stake = data.get('last_judged_stake', 0)
-        obj._last_judged_correct = data.get('last_judged_correct', True)
-        obj._final_bids = data.get('final_bids', {})
-        obj._final_answers = data.get('final_answers', {})
-        obj._final_judgment_queue = data.get('final_judgment_queue', [])
-        obj._final_current_judge_id = data.get('final_current_judge_id')
+        obj._current_answerer_id = data.get("current_answerer_id")
+        obj._auction_bid = data.get("auction_bid", 0)
+        obj._buzzes = data.get("buzzes", [])
+        obj._last_judged_id = data.get("last_judged_id")
+        obj._last_judged_stake = data.get("last_judged_stake", 0)
+        obj._last_judged_correct = data.get("last_judged_correct", True)
+        obj._final_bids = data.get("final_bids", {})
+        obj._final_answers = data.get("final_answers", {})
+        obj._final_judgment_queue = data.get("final_judgment_queue", [])
+        obj._final_current_judge_id = data.get("final_current_judge_id")
         # Restore final question reference if in a final phase
         final_phases = {Phase.FINAL_BID, Phase.FINAL_QUESTION, Phase.FINAL_JUDGING}
         if obj._phase in final_phases and obj._final_round is not None:
             theme = obj._final_round.themes[0] if obj._final_round.themes else None
-            obj._final_theme_name = theme.name if theme else ''
-            obj._final_question = (
-                theme.questions[0] if (theme and theme.questions) else None
-            )
+            obj._final_theme_name = theme.name if theme else ""
+            obj._final_question = theme.questions[0] if (theme and theme.questions) else None
         else:
-            obj._final_theme_name = ''
+            obj._final_theme_name = ""
             obj._final_question = None
         return obj
 

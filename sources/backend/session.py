@@ -14,10 +14,10 @@ from typing import Any
 
 from aiohttp import web
 
-from kvizgame.config import config as _config
-from kvizgame.game import GameError, GameMachine, Phase
-from kvizgame.parser import load as _load_siq
-from kvizgame.protocol import In, Out, decode, encode
+from backend.config import config as _config
+from backend.game import GameError, GameMachine, Phase
+from backend.parser import load as _load_siq
+from backend.protocol import In, Out, decode, encode
 
 logger = logging.getLogger(__name__)
 

@@ -5,9 +5,9 @@ import pathlib
 
 from aiohttp import web
 
-from kvizgame.config import config
-from kvizgame.server import create_app
-from kvizgame.session import GameSession
+from backend.config import config
+from backend.server import create_app
+from backend.session import GameSession
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s %(name)s: %(message)s')
 logger = logging.getLogger('kvizgame')

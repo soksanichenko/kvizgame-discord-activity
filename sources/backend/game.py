@@ -7,7 +7,7 @@ from dataclasses import dataclass, field
 from enum import Enum, auto
 from typing import Any
 
-from kvizgame.parser import Package, Question, Round
+from backend.parser import Package, Question, Round
 
 
 class Phase(Enum):

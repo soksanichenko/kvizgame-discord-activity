@@ -20,9 +20,9 @@ jobs:
         uses: astral-sh/ruff-action@v3
         continue-on-error: true
         with:
-          args: "check kvizgame/ main.py"
+          args: "check sources/backend/ main.py"
 
       - name: Run ruff format check
         uses: astral-sh/ruff-action@v3
         with:
-          args: "format --check kvizgame/ main.py"
+          args: "format --check sources/backend/ main.py"

@@ -11,10 +11,10 @@ import urllib.parse
 import aiohttp
 from aiohttp import WSMsgType, web
 
-from kvizgame.config import config
-from kvizgame.game import GameMachine, Settings
-from kvizgame.parser import load
-from kvizgame.session import GameSession, cleanup_stale_media_dirs
+from backend.config import config
+from backend.game import GameMachine, Settings
+from backend.parser import load
+from backend.session import GameSession, cleanup_stale_media_dirs
 
 logger = logging.getLogger(__name__)
 

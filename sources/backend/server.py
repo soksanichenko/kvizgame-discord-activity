@@ -8,6 +8,8 @@ import os
 import pathlib
 import urllib.parse
 
+import zipfile
+
 import aiohttp
 from aiohttp import WSMsgType, web
 
@@ -181,6 +183,40 @@ async def _list_packs(request: web.Request) -> web.Response:
     return web.json_response(packs)
 
 
+async def _upload_pack(request: web.Request) -> web.Response:
+    """POST /packs — upload a .siq pack file; validates ZIP structure before saving."""
+    reader = await request.multipart()
+    field = await reader.next()
+    if field is None or field.name != "file":
+        raise web.HTTPBadRequest(reason='Expected multipart field named "file"')
+
+    filename = os.path.basename(field.filename or "")
+    if not filename.lower().endswith(".siq"):
+        raise web.HTTPBadRequest(reason="File must have a .siq extension")
+
+    packs_dir = pathlib.Path(config.kvizgame_packs_dir)
+    packs_dir.mkdir(parents=True, exist_ok=True)
+    dest = packs_dir / filename
+    tmp = packs_dir / (filename + ".tmp")
+    try:
+        with tmp.open("wb") as fh:
+            while chunk := await field.read_chunk():
+                fh.write(chunk)
+        try:
+            with zipfile.ZipFile(tmp) as zf:
+                if "content.xml" not in zf.namelist():
+                    raise web.HTTPUnprocessableEntity(reason="Missing content.xml in archive")
+        except zipfile.BadZipFile as exc:
+            raise web.HTTPUnprocessableEntity(reason="Not a valid ZIP/SIQ archive") from exc
+        tmp.rename(dest)
+    except Exception:
+        tmp.unlink(missing_ok=True)
+        raise
+
+    logger.info("Pack uploaded: %s", filename)
+    return web.json_response({"name": filename, "path": str(dest)}, status=201)
+
+
 async def _delete_session(request: web.Request) -> web.Response:
     """DELETE /sessions/{channel_id} — remove a session."""
     channel_id = request.match_info["channel_id"]
@@ -222,6 +258,7 @@ def create_app(sessions: dict | None = None) -> web.Application:
     app.router.add_get("/health", _health)
     app.router.add_post("/token", _token_handler)
     app.router.add_get("/packs", _list_packs)
+    app.router.add_post("/packs", _upload_pack)
     app.router.add_get("/sessions/{channel_id}", _get_session)
     app.router.add_post("/sessions", _create_session)
     app.router.add_delete("/sessions/{channel_id}", _delete_session)

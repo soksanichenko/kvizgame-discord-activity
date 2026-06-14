@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Events } from '@discord/embedded-app-sdk';
 import { sdk } from '../discord';
 import type { AuthResult } from '../discord';
@@ -26,17 +26,46 @@ export function Lobby({ auth, onGameReady }: LobbyProps) {
   ]);
   const [starting, setStarting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [uploading, setUploading] = useState(false);
+  const [uploadError, setUploadError] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Fetch available packs once on mount.
-  useEffect(() => {
+  const fetchPacks = useCallback(() => {
     fetch('/api/packs')
       .then((r) => r.json())
       .then((data: Pack[]) => {
         setPacks(data);
-        if (data.length > 0) setSelectedPath(data[0].path);
+        setSelectedPath((prev) => prev || (data.length > 0 ? data[0].path : ''));
       })
       .catch(() => {});
   }, []);
+
+  useEffect(() => { fetchPacks(); }, [fetchPacks]);
+
+  const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setUploading(true);
+    setUploadError(null);
+    const form = new FormData();
+    form.append('file', file);
+    try {
+      const r = await fetch('/api/packs', { method: 'POST', body: form });
+      if (r.ok) {
+        const data: Pack = await r.json();
+        fetchPacks();
+        setSelectedPath(data.path);
+      } else {
+        const text = await r.text();
+        setUploadError(text || 'Upload failed');
+      }
+    } catch {
+      setUploadError('Network error');
+    } finally {
+      setUploading(false);
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    }
+  };
 
   // Get initial participant list; fall back to current user in dev/mock mode.
   useEffect(() => {
@@ -135,9 +164,7 @@ export function Lobby({ auth, onGameReady }: LobbyProps) {
         <section style={{ flex: 1 }}>
           <h3 style={{ marginBottom: '0.75rem' }}>Pack</h3>
           {packs.length === 0 ? (
-            <p style={{ color: '#ef9a9a', fontSize: '0.9rem' }}>
-              No packs found. Ask an admin to upload a .siq pack via the bot.
-            </p>
+            <p style={{ color: '#aaa', fontSize: '0.9rem' }}>No packs yet — upload one below.</p>
           ) : (
             <select
               value={selectedPath}
@@ -158,6 +185,25 @@ export function Lobby({ auth, onGameReady }: LobbyProps) {
               ))}
             </select>
           )}
+          <div style={{ marginTop: '0.6rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+            <input ref={fileInputRef} type="file" accept=".siq" style={{ display: 'none' }} onChange={handleUpload} />
+            <button
+              onClick={() => fileInputRef.current?.click()}
+              disabled={uploading}
+              style={{
+                padding: '0.35rem 0.9rem',
+                fontSize: '0.85rem',
+                background: uploading ? '#333' : '#2a2a3e',
+                color: uploading ? '#888' : '#90caf9',
+                border: '1px solid #444',
+                borderRadius: 6,
+                cursor: uploading ? 'default' : 'pointer',
+              }}
+            >
+              {uploading ? 'Uploading…' : 'Upload .siq'}
+            </button>
+            {uploadError && <span style={{ fontSize: '0.8rem', color: '#ef9a9a' }}>{uploadError}</span>}
+          </div>
         </section>
       </div>
 

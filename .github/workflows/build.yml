@@ -3,10 +3,6 @@ name: Build
 run-name: "${{ github.event.workflow_run.display_title || 'Manual build' }}"
 
 on:
-  workflow_run:
-    workflows: ["Test"]
-    types: [completed]
-    branches: [main]
   workflow_dispatch:
 
 concurrency:
@@ -21,10 +17,7 @@ jobs:
   verify:
     name: Verify collaborator
     runs-on: ubuntu-latest
-    if: >-
-      github.event_name == 'workflow_dispatch' ||
-      (github.event.workflow_run.conclusion == 'success' &&
-      !contains(github.event.workflow_run.head_commit.message, '[skip deploy]'))
+    if: github.event_name == 'workflow_dispatch'
     steps:
       - name: Check actor has write access
         uses: actions/github-script@v7

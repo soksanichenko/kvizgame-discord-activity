@@ -16,7 +16,9 @@ export function App() {
   const [authError, setAuthError] = useState<string | null>(null);
 
   useEffect(() => {
-    setup().then(setAuth).catch((e: unknown) => setAuthError(String(e)));
+    setup().then(setAuth).catch((e: unknown) =>
+      setAuthError(e instanceof Error ? e.message : JSON.stringify(e))
+    );
   }, []);
 
   if (authError) return <Centered>Discord auth failed: {authError}</Centered>;

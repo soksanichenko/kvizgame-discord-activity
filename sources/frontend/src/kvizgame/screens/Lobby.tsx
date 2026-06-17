@@ -27,6 +27,7 @@ export function Lobby({ auth, onGameReady }: LobbyProps) {
   const [starting, setStarting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState(0);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -47,22 +48,38 @@ export function Lobby({ auth, onGameReady }: LobbyProps) {
     if (!file) return;
     setUploading(true);
     setUploadError(null);
-    const form = new FormData();
-    form.append('file', file);
+    setUploadProgress(0);
+
+    const CHUNK_SIZE = 8 * 1024 * 1024;
+    const uploadId = crypto.randomUUID();
+    const totalChunks = Math.ceil(file.size / CHUNK_SIZE);
+
     try {
-      const r = await fetch('/api/packs', { method: 'POST', body: form });
-      if (r.ok) {
-        const data: Pack = await r.json();
-        fetchPacks();
-        setSelectedPath(data.path);
-      } else {
-        const text = await r.text();
-        setUploadError(text || 'Upload failed');
+      for (let i = 0; i < totalChunks; i++) {
+        const form = new FormData();
+        form.append('upload_id', uploadId);
+        form.append('chunk_index', String(i));
+        form.append('total_chunks', String(totalChunks));
+        form.append('filename', file.name);
+        form.append('chunk', file.slice(i * CHUNK_SIZE, (i + 1) * CHUNK_SIZE));
+
+        const r = await fetch('/api/packs/chunk', { method: 'POST', body: form });
+        if (!r.ok) {
+          setUploadError((await r.text()) || 'Upload failed');
+          return;
+        }
+        const data = await r.json();
+        setUploadProgress(Math.round(((i + 1) / totalChunks) * 100));
+        if (data.done) {
+          fetchPacks();
+          setSelectedPath(data.path);
+        }
       }
     } catch {
       setUploadError('Network error');
     } finally {
       setUploading(false);
+      setUploadProgress(0);
       if (fileInputRef.current) fileInputRef.current.value = '';
     }
   };
@@ -200,7 +217,7 @@ export function Lobby({ auth, onGameReady }: LobbyProps) {
                 cursor: uploading ? 'default' : 'pointer',
               }}
             >
-              {uploading ? 'Uploading…' : 'Upload .siq'}
+              {uploading ? `Uploading… ${uploadProgress}%` : 'Upload .siq'}
             </button>
             {uploadError && <span style={{ fontSize: '0.8rem', color: '#ef9a9a' }}>{uploadError}</span>}
           </div>

@@ -199,6 +199,88 @@ async def _upload_pack(request: web.Request) -> web.Response:
     return web.json_response({"name": filename, "path": str(dest)}, status=201)
 
 
+def _cleanup_chunks(chunks_dir: pathlib.Path) -> None:
+    if not chunks_dir.exists():
+        return
+    for p in chunks_dir.iterdir():
+        p.unlink(missing_ok=True)
+    try:
+        chunks_dir.rmdir()
+        chunks_dir.parent.rmdir()
+    except OSError:
+        pass
+
+
+async def _upload_pack_chunk(request: web.Request) -> web.Response:
+    """POST /packs/chunk — upload one chunk of a .siq file.
+
+    Multipart fields:
+      upload_id    str  Unique upload session identifier (UUID).
+      chunk_index  int  Zero-based index of this chunk.
+      total_chunks int  Total number of chunks.
+      filename     str  Final .siq filename.
+      chunk        bin  Raw chunk bytes.
+
+    Returns ``{"received": i, "done": false}`` for intermediate chunks and
+    ``{"name": filename, "path": str, "done": true}`` with status 201
+    when the last chunk triggers final assembly and validation.
+    """
+    reader = await request.multipart()
+    fields: dict[str, str] = {}
+    chunk_data = b""
+
+    while True:
+        field = await reader.next()
+        if field is None:
+            break
+        if field.name == "chunk":
+            chunk_data = await field.read()
+        else:
+            fields[field.name] = (await field.read()).decode()
+
+    try:
+        upload_id = fields["upload_id"]
+        chunk_index = int(fields["chunk_index"])
+        total_chunks = int(fields["total_chunks"])
+        filename = os.path.basename(fields["filename"])
+    except (KeyError, ValueError) as exc:
+        raise web.HTTPBadRequest(reason="Missing or invalid chunk metadata") from exc
+
+    if not filename.lower().endswith(".siq"):
+        raise web.HTTPBadRequest(reason="File must have a .siq extension")
+
+    packs_dir = pathlib.Path(config.kvizgame_packs_dir)
+    chunks_dir = packs_dir / ".chunks" / upload_id
+    chunks_dir.mkdir(parents=True, exist_ok=True)
+    (chunks_dir / f"{chunk_index:06d}").write_bytes(chunk_data)
+
+    received = sum(1 for _ in chunks_dir.iterdir())
+    if received < total_chunks:
+        return web.json_response({"received": chunk_index, "done": False})
+
+    dest = packs_dir / filename
+    tmp = packs_dir / (filename + ".tmp")
+    try:
+        with tmp.open("wb") as fh:
+            for i in range(total_chunks):
+                fh.write((chunks_dir / f"{i:06d}").read_bytes())
+        try:
+            with zipfile.ZipFile(tmp) as zf:
+                if "content.xml" not in zf.namelist():
+                    raise web.HTTPUnprocessableEntity(reason="Missing content.xml in archive")
+        except zipfile.BadZipFile as exc:
+            raise web.HTTPUnprocessableEntity(reason="Not a valid ZIP/SIQ archive") from exc
+        tmp.rename(dest)
+    except Exception:
+        tmp.unlink(missing_ok=True)
+        raise
+    finally:
+        _cleanup_chunks(chunks_dir)
+
+    logger.info("Pack uploaded (chunked, %d parts): %s", total_chunks, filename)
+    return web.json_response({"name": filename, "path": str(dest), "done": True}, status=201)
+
+
 async def _delete_session(request: web.Request) -> web.Response:
     """DELETE /sessions/{channel_id} — remove a session."""
     channel_id = request.match_info["channel_id"]
@@ -241,6 +323,7 @@ def create_app(sessions: dict | None = None) -> web.Application:
     app.router.add_post("/token", _token_handler)
     app.router.add_get("/packs", _list_packs)
     app.router.add_post("/packs", _upload_pack)
+    app.router.add_post("/packs/chunk", _upload_pack_chunk)
     app.router.add_get("/sessions/{channel_id}", _get_session)
     app.router.add_post("/sessions", _create_session)
     app.router.add_delete("/sessions/{channel_id}", _delete_session)

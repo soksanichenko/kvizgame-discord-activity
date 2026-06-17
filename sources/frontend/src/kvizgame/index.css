@@ -33,5 +33,5 @@ button:disabled {
 }
 
 button:not(:disabled):hover {
-  filter: brightness(1.15);
+  filter: brightness(1.12);
 }

@@ -63,7 +63,6 @@ async def _token_handler(request: web.Request) -> web.Response:
     if not code:
         raise web.HTTPBadRequest(reason="Missing code")
 
-    redirect_uri = f"https://{config.discord_client_id}.discordsays.com/.proxy/auth"
     async with aiohttp.ClientSession() as session:
         resp = await session.post(
             "https://discord.com/api/oauth2/token",
@@ -72,7 +71,6 @@ async def _token_handler(request: web.Request) -> web.Response:
                 "client_secret": config.discord_client_secret,
                 "grant_type": "authorization_code",
                 "code": code,
-                "redirect_uri": redirect_uri,
             },
         )
         if resp.status != 200:

@@ -62,6 +62,8 @@ location ^~ /packs {
     proxy_set_header     Host      $host;
     proxy_set_header     X-Real-IP $remote_addr;
     client_max_body_size 256m;
+    proxy_read_timeout   300s;
+    proxy_send_timeout   300s;
 }
 
 location /ws/ {

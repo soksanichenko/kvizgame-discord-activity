@@ -233,7 +233,7 @@ def create_app(sessions: dict | None = None) -> web.Application:
         sessions: Optional external sessions dict to share with the Discord cog.
                   If None, a new empty dict is created.
     """
-    app = web.Application()
+    app = web.Application(client_max_size=256 * 1024 * 1024)
     app["sessions"] = sessions if sessions is not None else {}
     app.on_startup.append(_on_startup)
     app.on_cleanup.append(_on_cleanup)

@@ -19,7 +19,7 @@ jobs:
     environment: production
     if: github.event_name == 'workflow_dispatch'
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - name: Install Ansible collections
         run: ansible-galaxy collection install -r ./ansible/requirements.yml

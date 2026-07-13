@@ -45,6 +45,8 @@
       KVIZGAME_PACKS_DIR: "/tmp/kvizgame-packs"
       KVIZGAME_SESSIONS_DIR: "/tmp/kvizgame-sessions"
       KVIZGAME_FRONTEND_DIR: "/code/frontend"
+    labels:
+      monitoring.critical: "true"
     log_driver: journald
   become: yes
   no_log: true

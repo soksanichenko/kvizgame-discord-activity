@@ -41,9 +41,19 @@ export interface FinalJudgmentQuestion {
   right: string[];
 }
 
+export interface GameSettings {
+  progressive_reveal: boolean;
+  false_starts: boolean;
+  show_answers_to_host: boolean;
+}
+
 export interface GameState {
   phase: Phase;
+  settings: GameSettings;
   host_id: string;
+  host_name: string;
+  host_avatar: string | null;
+  player_avatars: Record<string, string | null>;
   pack_stem: string;
   paused: boolean;
   appeal_by: string | null;

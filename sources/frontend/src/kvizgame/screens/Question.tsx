@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import type { GameState } from '../types';
+import type { Atom, GameState } from '../types';
 import { Scores } from './Scores';
 import { TimerBorder } from './TimerBorder';
 import { PauseOverlay } from './PauseOverlay';
@@ -12,6 +12,8 @@ const MEDIA_FOLDER: Record<string, string> = {
   video: 'Video',
 };
 
+const DEFAULT_REVEAL_SEC = 4;
+
 interface QuestionProps {
   state: GameState;
   channelId: string;
@@ -21,14 +23,41 @@ interface QuestionProps {
 }
 
 export function Question({ state, channelId, playerId, isHost, send }: QuestionProps) {
-  const { phase, paused, appeal_by, last_judged_id, current_question: cq, active_player_id, current_answerer_id, scores, player_names } = state;
+  const { phase, paused, appeal_by, last_judged_id, current_question: cq, active_player_id, current_answerer_id, scores, player_names, settings } = state;
+  const progressive = settings.progressive_reveal;
   const isActive = active_player_id === playerId;
   const isAnswerer = current_answerer_id === playerId;
 
+  // Track whether we already sent open_buzzer for this question.
+  const openedRef = useRef(false);
+  useEffect(() => { openedRef.current = false; }, [cq?.theme_name, cq?.price]);
+
+  // Auto-advance after ANSWER_RESULT (host only, 4 s window for appeals).
+  useEffect(() => {
+    if (phase !== 'ANSWER_RESULT' || !isHost || appeal_by || paused) return;
+    const t = setTimeout(() => send('advance'), 4000);
+    return () => clearTimeout(t);
+  }, [phase, isHost, appeal_by, paused, send]);
+
+  // Auto-open buzzer (host only). Delay = sum of reveal durations when progressive.
+  useEffect(() => {
+    if (phase !== 'QUESTION' || !isHost) return;
+    const delayMs = progressive
+      ? (cq?.scenario ?? []).reduce((sum, a) => sum + (a.time > 0 ? a.time : DEFAULT_REVEAL_SEC) * 1000, 0)
+      : 0;
+    const t = setTimeout(() => {
+      if (!openedRef.current) {
+        openedRef.current = true;
+        send('open_buzzer');
+      }
+    }, delayMs);
+    return () => clearTimeout(t);
+  }, [phase, isHost, progressive, cq?.theme_name, cq?.price, send]);
+
+  // Auto-play media elements on question change.
   const mediaRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
-    if (!mediaRef.current) return;
-    mediaRef.current.querySelectorAll<HTMLMediaElement>('audio, video').forEach(el => {
+    mediaRef.current?.querySelectorAll<HTMLMediaElement>('audio, video').forEach(el => {
       el.play().catch(() => {});
     });
   }, [cq?.theme_name, cq?.price]);
@@ -55,27 +84,20 @@ export function Question({ state, channelId, playerId, isHost, send }: QuestionP
         </div>
       )}
 
-      <div ref={mediaRef} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '1rem' }}>
-        {cq?.scenario.map((atom, i) => {
-          if (atom.type === 'text' || atom.type === 'say') {
-            return <p key={i} style={{ fontSize: '1.4rem', textAlign: 'center', maxWidth: 600 }}>{atom.content}</p>;
-          }
-          const folder = MEDIA_FOLDER[atom.type];
-          if (folder) {
-            const filename = atom.content.replace(/^@/, '');
-            const url = `/api/media/packs/${state.pack_stem}/${folder}/${encodeURIComponent(filename)}`;
-            if (atom.type === 'image') {
-              return <img key={i} src={url} style={{ maxWidth: '100%', maxHeight: 400, objectFit: 'contain' }} />;
-            }
-            if (atom.type === 'audio' || atom.type === 'voice') {
-              return <audio key={i} autoPlay controls src={url} style={{ width: '100%', maxWidth: 500 }} />;
-            }
-            if (atom.type === 'video') {
-              return <video key={i} autoPlay controls src={url} style={{ maxWidth: '100%', maxHeight: 400 }} />;
-            }
-          }
-          return null;
-        })}
+      {isHost && settings.show_answers_to_host && cq && phase !== 'ANSWER_RESULT' && (
+        <div style={{ textAlign: 'center', fontSize: '0.8rem', color: '#a5d6a7', padding: '0.2rem 0.75rem', background: '#0a1a05', borderRadius: 4, border: '1px solid #1a5a1a' }}>
+          Answer: {cq.right.join(' / ')}
+        </div>
+      )}
+
+      <div
+        ref={mediaRef}
+        key={`${cq?.theme_name}-${cq?.price}`}
+        style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '1rem' }}
+      >
+        {cq?.scenario.map((atom, i) => (
+          <QuestionAtom key={i} atom={atom} packStem={state.pack_stem} progressive={progressive} />
+        ))}
       </div>
 
       {phase === 'ANSWER_RESULT' && cq && (
@@ -94,13 +116,96 @@ export function Question({ state, channelId, playerId, isHost, send }: QuestionP
         playerId={playerId}
         playerNames={player_names}
         lastJudgedId={last_judged_id}
+        falseStarts={settings.false_starts}
         send={send}
       />
 
-      <Scores scores={scores} playerNames={player_names} answerer={current_answerer_id} />
+      <Scores scores={scores} playerNames={player_names} playerAvatars={state.player_avatars} connectedPlayers={state.connected_players} answerer={current_answerer_id} />
     </div>
   );
 }
+
+// ---------------------------------------------------------------------------
+// Atom renderers
+// ---------------------------------------------------------------------------
+
+function QuestionAtom({ atom, packStem, progressive }: { atom: Atom; packStem: string; progressive: boolean }) {
+  if (atom.type === 'text' || atom.type === 'say') {
+    return <RevealText content={atom.content} durationSec={atom.time} progressive={progressive} />;
+  }
+  const folder = MEDIA_FOLDER[atom.type];
+  if (!folder) return null;
+  const filename = atom.content.replace(/^@/, '');
+  const url = `/api/media/packs/${packStem}/${folder}/${encodeURIComponent(filename)}`;
+  if (atom.type === 'image') {
+    return <RevealImage src={url} durationSec={atom.time} progressive={progressive} />;
+  }
+  if (atom.type === 'audio' || atom.type === 'voice') {
+    return <audio autoPlay controls src={url} style={{ width: '100%', maxWidth: 500 }} />;
+  }
+  if (atom.type === 'video') {
+    return <video autoPlay controls src={url} style={{ maxWidth: '100%', maxHeight: 400 }} />;
+  }
+  return null;
+}
+
+function RevealText({ content, durationSec, progressive }: { content: string; durationSec: number; progressive: boolean }) {
+  const [visible, setVisible] = useState(() => (progressive ? 0 : content.length));
+
+  useEffect(() => {
+    if (!progressive) {
+      setVisible(content.length);
+      return;
+    }
+    setVisible(0);
+    const totalMs = (durationSec > 0 ? durationSec : DEFAULT_REVEAL_SEC) * 1000;
+    const start = Date.now();
+    let id: ReturnType<typeof requestAnimationFrame>;
+    const tick = () => {
+      const fraction = Math.min((Date.now() - start) / totalMs, 1);
+      setVisible(Math.ceil(fraction * content.length));
+      if (fraction < 1) id = requestAnimationFrame(tick);
+    };
+    id = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(id);
+  }, [content, durationSec, progressive]);
+
+  return <p style={{ fontSize: '1.4rem', textAlign: 'center', maxWidth: 600, margin: 0 }}>{content.slice(0, visible)}</p>;
+}
+
+function RevealImage({ src, durationSec, progressive }: { src: string; durationSec: number; progressive: boolean }) {
+  const [progress, setProgress] = useState(() => (progressive && durationSec !== 0 ? 0 : 100));
+
+  useEffect(() => {
+    if (!progressive) {
+      setProgress(100);
+      return;
+    }
+    setProgress(0);
+    const totalMs = (durationSec > 0 ? durationSec : DEFAULT_REVEAL_SEC) * 1000;
+    const start = Date.now();
+    let id: ReturnType<typeof requestAnimationFrame>;
+    const tick = () => {
+      const fraction = Math.min((Date.now() - start) / totalMs, 1);
+      setProgress(Math.ceil(fraction * 100));
+      if (fraction < 1) id = requestAnimationFrame(tick);
+    };
+    id = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(id);
+  }, [src, durationSec, progressive]);
+
+  const clipPath = progress < 100 ? `inset(0 0 ${100 - progress}% 0)` : undefined;
+  return (
+    <img
+      src={src}
+      style={{ maxWidth: '100%', maxHeight: 400, objectFit: 'contain', ...(clipPath ? { clipPath } : {}) }}
+    />
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Controls
+// ---------------------------------------------------------------------------
 
 interface ControlsProps {
   phase: GameState['phase'];
@@ -112,10 +217,11 @@ interface ControlsProps {
   playerId: string;
   playerNames: Record<string, string>;
   lastJudgedId: string | null;
+  falseStarts: boolean;
   send: (op: string, data?: Record<string, unknown>) => void;
 }
 
-function Controls({ phase, isActive, isHost, isAnswerer, answerer, cq, playerId, playerNames, lastJudgedId, send }: ControlsProps) {
+function Controls({ phase, isActive, isHost, isAnswerer, answerer, cq, playerId, playerNames, lastJudgedId, falseStarts, send }: ControlsProps) {
   const minBid = cq ? Math.max(1, cq.price) : 1;
   const [bid, setBid] = useState(minBid);
   useEffect(() => { setBid(minBid); }, [minBid]);
@@ -170,17 +276,22 @@ function Controls({ phase, isActive, isHost, isAnswerer, answerer, cq, playerId,
     );
   }
 
-  if (phase === 'QUESTION' && isHost) {
+  // Early buzz: shown when false starts are allowed and there is no fixed answerer.
+  if (phase === 'QUESTION' && !isHost && !falseStarts && !answerer) {
     return (
       <div style={{ textAlign: 'center' }}>
-        <button onClick={() => send('open_buzzer')} style={{ background: '#1565c0', color: '#fff', fontSize: '1rem', padding: '0.6rem 2rem' }}>
-          Open Buzzer
+        <button
+          onClick={() => send('buzz')}
+          style={{ background: '#b71c1c', color: '#fff', fontSize: '1.6rem', fontWeight: 700, padding: '1rem 3rem', borderRadius: 12 }}
+        >
+          BUZZ!
         </button>
       </div>
     );
   }
 
   if (phase === 'BUZZER_OPEN') {
+    if (isHost) return null;
     return (
       <div style={{ textAlign: 'center' }}>
         <button
@@ -209,21 +320,15 @@ function Controls({ phase, isActive, isHost, isAnswerer, answerer, cq, playerId,
 
   if (phase === 'ANSWER_RESULT') {
     const canAppeal = !isHost && lastJudgedId === playerId;
+    if (!canAppeal) return null;
     return (
-      <div style={{ textAlign: 'center', display: 'flex', gap: '0.75rem', justifyContent: 'center' }}>
-        {isHost && (
-          <button onClick={() => send('advance')} style={{ background: '#1565c0', color: '#fff', padding: '0.6rem 2rem' }}>
-            Continue →
-          </button>
-        )}
-        {canAppeal && (
-          <button
-            onClick={() => send('request_appeal')}
-            style={{ background: '#e65100', color: '#fff', padding: '0.6rem 1.5rem', borderRadius: 6, cursor: 'pointer' }}
-          >
-            ⚖️ Appeal
-          </button>
-        )}
+      <div style={{ textAlign: 'center' }}>
+        <button
+          onClick={() => send('request_appeal')}
+          style={{ background: '#e65100', color: '#fff', padding: '0.6rem 1.5rem', borderRadius: 6, cursor: 'pointer' }}
+        >
+          ⚖️ Appeal
+        </button>
       </div>
     );
   }

@@ -50,9 +50,16 @@ class Settings:
     Attributes:
         buzz_window_ms: 0 = strict first-buzz-wins; >0 = random among
             all buzzes collected within the window (caller handles timing).
+        progressive_reveal: Animate text/image atoms instead of showing instantly.
+        false_starts: When True, players may only buzz after BUZZER_OPEN.
+            When False, players may buzz during QUESTION phase.
+        show_answers_to_host: Send correct answers to host during QUESTION phase.
     """
 
     buzz_window_ms: int = 0
+    progressive_reveal: bool = False
+    false_starts: bool = False
+    show_answers_to_host: bool = False
 
 
 @dataclass
@@ -614,6 +621,24 @@ class GameMachine:
     # Internal helpers
     # ------------------------------------------------------------------
 
+    def add_player(self, player_id: str, name: str) -> None:
+        """Add a spectator as a scored player mid-game.
+
+        Args:
+            player_id: The joining player's ID.
+            name: Display name.
+
+        Raises:
+            GameError: Player already registered, or game is over.
+        """
+        _blocked = {Phase.FINAL_BID, Phase.FINAL_QUESTION, Phase.FINAL_JUDGING, Phase.GAME_OVER}
+        if self._phase in _blocked:
+            raise GameError("Cannot join during the final round or after the game is over")
+        if player_id in self._players:
+            raise GameError("Already a player in this game")
+        self._players[player_id] = Player(id=player_id, name=name)
+        self._player_order.append(player_id)
+
     def correct_scores(self, adjustments: dict[str, int]) -> None:
         """Apply manual score deltas.
 
@@ -636,7 +661,12 @@ class GameMachine:
     def to_dict(self) -> dict[str, Any]:
         """Serialize game state to a JSON-compatible dict."""
         return {
-            "settings": {"buzz_window_ms": self._settings.buzz_window_ms},
+            "settings": {
+                "buzz_window_ms": self._settings.buzz_window_ms,
+                "progressive_reveal": self._settings.progressive_reveal,
+                "false_starts": self._settings.false_starts,
+                "show_answers_to_host": self._settings.show_answers_to_host,
+            },
             "players": [
                 {
                     "id": p.id,
@@ -681,7 +711,13 @@ class GameMachine:
             data: Serialized state dict.
         """
         obj: GameMachine = cls.__new__(cls)
-        obj._settings = Settings(buzz_window_ms=data["settings"]["buzz_window_ms"])
+        s = data["settings"]
+        obj._settings = Settings(
+            buzz_window_ms=s["buzz_window_ms"],
+            progressive_reveal=s.get("progressive_reveal", False),
+            false_starts=s.get("false_starts", False),
+            show_answers_to_host=s.get("show_answers_to_host", False),
+        )
         obj._players = {}
         for p_data in data["players"]:
             p = Player(id=p_data["id"], name=p_data["name"], score=p_data["score"])

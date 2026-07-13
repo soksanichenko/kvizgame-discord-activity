@@ -48,6 +48,12 @@ async def _ws_handler(request: web.Request) -> web.WebSocketResponse:
                 break
     finally:
         await session.disconnect(player_id)
+        if session.is_empty:
+            sessions.pop(channel_id, None)
+            session.delete_saved()
+            logger.info(
+                "Session auto-cleaned for channel %r (all players disconnected)", channel_id
+            )
 
     return ws
 
@@ -109,13 +115,26 @@ async def _create_session(request: web.Request) -> web.Response:
     except Exception as exc:
         raise web.HTTPUnprocessableEntity(reason=f"Failed to load .siq: {exc}") from exc
 
-    settings = Settings(buzz_window_ms=int(body.get("buzz_window_ms", 0)))
+    settings = Settings(
+        buzz_window_ms=int(body.get("buzz_window_ms", 0)),
+        progressive_reveal=bool(body.get("progressive_reveal", False)),
+        false_starts=bool(body.get("false_starts", False)),
+        show_answers_to_host=bool(body.get("show_answers_to_host", False)),
+    )
     try:
         game = GameMachine(package, body["player_ids"], body["player_names"], settings)
     except (ValueError, KeyError) as exc:
         raise web.HTTPUnprocessableEntity(reason=str(exc)) from exc
 
-    session = GameSession(channel_id, game, body["siq_path"], body["host_id"])
+    session = GameSession(
+        channel_id,
+        game,
+        body["siq_path"],
+        body["host_id"],
+        host_name=str(body.get("host_name", body["host_id"])),
+        host_avatar=body.get("host_avatar"),
+        player_avatars=body.get("player_avatars", {}),
+    )
     session.save()
     sessions[channel_id] = session
     logger.info("Session created for channel %r", channel_id)
@@ -288,6 +307,7 @@ async def _delete_session(request: web.Request) -> web.Response:
     session = sessions.pop(channel_id, None)
     if session is None:
         raise web.HTTPNotFound(reason=f"No session for channel {channel_id!r}")
+    await session.close_all()
     session.delete_saved()
     logger.info("Session removed for channel %r", channel_id)
     return web.Response(status=204)

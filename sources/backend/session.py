@@ -45,7 +45,8 @@ def cleanup_stale_media_dirs(active_dirs: set[str]) -> None:
 
 
 # How long to wait for any buzz before auto-closing (both window modes).
-_BUZZ_AUTO_CLOSE_S = 30.0
+_BUZZ_AUTO_CLOSE_S = 5.0
+_ANSWER_TIMEOUT_S = 20.0
 
 
 class GameSession:
@@ -58,18 +59,31 @@ class GameSession:
         host_id: Discord user ID of the host (not a player).
     """
 
-    def __init__(self, channel_id: str, game: GameMachine, siq_path: str, host_id: str) -> None:
+    def __init__(
+        self,
+        channel_id: str,
+        game: GameMachine,
+        siq_path: str,
+        host_id: str,
+        host_name: str = "",
+        host_avatar: str | None = None,
+        player_avatars: dict[str, str | None] | None = None,
+    ) -> None:
         if not channel_id.isdigit():
             raise ValueError(f"channel_id must be numeric, got {channel_id!r}")
         self._channel_id = channel_id
         self._game = game
         self._siq_path = siq_path
         self._host_id = host_id
+        self._host_name = host_name or host_id
+        self._host_avatar = host_avatar
+        self._player_avatars: dict[str, str | None] = player_avatars or {}
         self._paused: bool = False
         self._appeal_by: str | None = None
         self._media_dir = self._extract_media() if siq_path else ""
         self._players: dict[str, web.WebSocketResponse] = {}
         self._buzz_task: asyncio.Task[None] | None = None
+        self._answer_task: asyncio.Task[None] | None = None
 
     @property
     def channel_id(self) -> str:
@@ -94,6 +108,10 @@ class GameSession:
     @property
     def player_count(self) -> int:
         return len(self._players)
+
+    @property
+    def is_empty(self) -> bool:
+        return not self._players
 
     # ------------------------------------------------------------------
     # Media extraction
@@ -158,6 +176,9 @@ class GameSession:
             "channel_id": self._channel_id,
             "siq_path": self._siq_path,
             "host_id": self._host_id,
+            "host_name": self._host_name,
+            "host_avatar": self._host_avatar,
+            "player_avatars": self._player_avatars,
             "paused": self._paused,
             "appeal_by": self._appeal_by,
             "game": self._game.to_dict(),
@@ -190,7 +211,15 @@ class GameSession:
         siq_path = data["siq_path"]
         package = _load_siq(siq_path).package
         game = GameMachine.from_dict(package, data["game"])
-        session = cls(data["channel_id"], game, siq_path, data["host_id"])
+        session = cls(
+            data["channel_id"],
+            game,
+            siq_path,
+            data["host_id"],
+            host_name=data.get("host_name", data["host_id"]),
+            host_avatar=data.get("host_avatar"),
+            player_avatars=data.get("player_avatars", {}),
+        )
         session._paused = data.get("paused", False)
         session._appeal_by = data.get("appeal_by")
         return session
@@ -215,6 +244,22 @@ class GameSession:
         await ws.send_str(encode(Out.STATE, self._state_data()))
         logger.debug("Player %r joined session %r", player_id, self._channel_id)
 
+    async def close_all(self) -> None:
+        """Send session_ended to all clients and close their WebSocket connections."""
+        self._cancel_buzz_task()
+        self._cancel_answer_task()
+        if not self._players:
+            return
+        msg = encode(Out.SESSION_ENDED, {})
+        for ws in list(self._players.values()):
+            if not ws.closed:
+                try:
+                    await ws.send_str(msg)
+                    await ws.close()
+                except Exception:
+                    pass
+        self._players.clear()
+
     async def disconnect(self, player_id: str) -> None:
         """Remove a player's connection and notify others.
 
@@ -223,6 +268,9 @@ class GameSession:
         """
         self._players.pop(player_id, None)
         await self._broadcast(Out.PLAYER_LEFT, {"player_id": player_id})
+        # Broadcast updated state so remaining clients see the new connected_players list.
+        if self._players:
+            await self._broadcast(Out.STATE, self._state_data())
         logger.debug("Player %r left session %r", player_id, self._channel_id)
 
     # ------------------------------------------------------------------
@@ -259,7 +307,12 @@ class GameSession:
 
         game = self._game
 
-        if op == In.SELECT:
+        if op == In.JOIN_AS_PLAYER:
+            name = str(data.get("name", player_id)).strip() or player_id
+            game.add_player(player_id, name)
+            await self._broadcast_state()
+
+        elif op == In.SELECT:
             game.select_question(player_id, int(data["theme_idx"]), int(data["question_idx"]))
             await self._broadcast_state()
 
@@ -278,19 +331,34 @@ class GameSession:
             await self._broadcast_state()
             if phase == Phase.BUZZER_OPEN:
                 await self._schedule_buzz_close()
+            elif phase == Phase.ANSWERING:
+                await self._schedule_answer_judge()
 
         elif op == In.BUZZ:
-            accepted = game.buzz(player_id)
-            if accepted and game.settings.buzz_window_ms == 0:
+            if game.phase == Phase.QUESTION and not game.settings.false_starts:
+                new_phase = game.open_buzzer()
+                if new_phase == Phase.ANSWERING:
+                    # Fixed-answerer question (cat/auction) — no buzzing allowed.
+                    raise GameError("Cannot buzz during question reveal for this question type")
+                game.buzz(player_id)
                 await self._close_buzzer()
+            elif game.phase == Phase.BUZZER_OPEN:
+                accepted = game.buzz(player_id)
+                if accepted and game.settings.buzz_window_ms == 0:
+                    await self._close_buzzer()
+                else:
+                    await self._broadcast_state()
             else:
-                await self._broadcast_state()
+                raise GameError("Cannot buzz in the current phase")
 
         elif op == In.JUDGE:
             if player_id != self._host_id:
                 raise GameError("Only the host can judge answers")
+            self._cancel_answer_task()
             game.judge_answer(bool(data["correct"]))
             await self._broadcast_state()
+            if game.phase == Phase.BUZZER_OPEN:
+                await self._schedule_buzz_close()
 
         elif op == In.ADVANCE:
             if player_id != self._host_id:
@@ -339,6 +407,7 @@ class GameSession:
             if not self._paused:
                 self._paused = True
                 self._cancel_buzz_task()
+                self._cancel_answer_task()
                 await self._broadcast_state()
 
         elif op == In.RESUME:
@@ -349,6 +418,8 @@ class GameSession:
                 await self._broadcast_state()
                 if self._game.phase == Phase.BUZZER_OPEN:
                     await self._schedule_buzz_close()
+                elif self._game.phase == Phase.ANSWERING:
+                    await self._schedule_answer_judge()
 
         elif op == In.REQUEST_APPEAL:
             eligible = game.last_wrong_judged_id
@@ -409,11 +480,34 @@ class GameSession:
         self._cancel_buzz_task()
         self._game.close_buzzer()
         await self._broadcast_state()
+        if self._game.phase == Phase.ANSWERING:
+            await self._schedule_answer_judge()
 
     def _cancel_buzz_task(self) -> None:
         if self._buzz_task and not self._buzz_task.done():
             self._buzz_task.cancel()
         self._buzz_task = None
+
+    # ------------------------------------------------------------------
+    # Answer window timer
+    # ------------------------------------------------------------------
+
+    async def _schedule_answer_judge(self) -> None:
+        self._cancel_answer_task()
+        self._answer_task = asyncio.create_task(self._answer_timer())
+
+    async def _answer_timer(self) -> None:
+        await asyncio.sleep(_ANSWER_TIMEOUT_S)
+        if self._game.phase == Phase.ANSWERING:
+            self._game.judge_answer(False)
+            await self._broadcast_state()
+            if self._game.phase == Phase.BUZZER_OPEN:
+                await self._schedule_buzz_close()
+
+    def _cancel_answer_task(self) -> None:
+        if self._answer_task and not self._answer_task.done():
+            self._answer_task.cancel()
+        self._answer_task = None
 
     # ------------------------------------------------------------------
     # State snapshot
@@ -475,7 +569,15 @@ class GameSession:
 
         return {
             "phase": phase.name,
+            "settings": {
+                "progressive_reveal": game.settings.progressive_reveal,
+                "false_starts": game.settings.false_starts,
+                "show_answers_to_host": game.settings.show_answers_to_host,
+            },
             "host_id": self._host_id,
+            "host_name": self._host_name,
+            "host_avatar": self._host_avatar,
+            "player_avatars": self._player_avatars,
             "pack_stem": pathlib.Path(self._siq_path).stem,
             "paused": self._paused,
             "appeal_by": self._appeal_by,

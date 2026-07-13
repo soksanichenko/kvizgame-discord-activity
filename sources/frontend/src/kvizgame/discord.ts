@@ -24,6 +24,7 @@ export interface AuthResult {
   userId: string;
   username: string;
   channelId: string;
+  avatar: string | null;
 }
 
 export async function setup(): Promise<AuthResult> {
@@ -35,6 +36,7 @@ export async function setup(): Promise<AuthResult> {
       userId: import.meta.env.VITE_MOCK_USER_ID || 'dev-p1',
       username: import.meta.env.VITE_MOCK_USERNAME || 'DevPlayer',
       channelId: import.meta.env.VITE_MOCK_CHANNEL_ID || 'mock-channel',
+      avatar: null,
     };
   }
 
@@ -62,5 +64,6 @@ export async function setup(): Promise<AuthResult> {
     userId: auth.user.id,
     username: auth.user.username,
     channelId: sdk.channelId!,
+    avatar: auth.user.avatar ?? null,
   };
 }

@@ -109,7 +109,25 @@ export function Board({ state, playerId, isHost, send }: BoardProps) {
         ))}
       </div>
 
-      <Scores scores={state.scores} playerNames={state.player_names} />
+      <Scores
+        scores={state.scores}
+        playerNames={state.player_names}
+        playerAvatars={state.player_avatars}
+        connectedPlayers={state.connected_players}
+      />
+      <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', paddingTop: '0.25rem', borderTop: '1px solid #1e1e3a' }}>
+        <img
+          src={state.host_avatar
+            ? `https://cdn.discordapp.com/avatars/${state.host_id}/${state.host_avatar}.png?size=32`
+            : (() => { try { return `https://cdn.discordapp.com/embed/avatars/${Number(BigInt(state.host_id) >> 22n) % 6}.png`; } catch { return 'https://cdn.discordapp.com/embed/avatars/0.png'; } })()
+          }
+          alt=""
+          style={{ width: 24, height: 24, borderRadius: '50%', objectFit: 'cover', flexShrink: 0 }}
+          onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
+        />
+        <span style={{ fontSize: '0.6rem', color: '#90caf9', textTransform: 'uppercase', letterSpacing: '0.05em', flexShrink: 0 }}>Host</span>
+        <span style={{ fontSize: '0.8rem', color: '#ccc' }}>{state.host_name}</span>
+      </div>
     </div>
   );
 }

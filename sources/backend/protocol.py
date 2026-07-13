@@ -22,6 +22,7 @@ from typing import Any
 class In:
     """Op codes sent by clients."""
 
+    JOIN_AS_PLAYER = "join_as_player"  # Spectator requests to join as a scored player
     SELECT = "select"  # Active player picks a question
     BID = "bid"  # Active player places an auction bid
     TRANSFER = "transfer"  # Active player nominates cat recipient
@@ -53,6 +54,7 @@ class Out:
     ERROR = "error"  # Action rejected; includes message
     PLAYER_JOINED = "player_joined"
     PLAYER_LEFT = "player_left"
+    SESSION_ENDED = "session_ended"  # Server is tearing down the session
 
 
 # ---------------------------------------------------------------------------

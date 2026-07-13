@@ -8,6 +8,7 @@ interface TimerBorderProps {
 }
 
 const PERIMETER = 400; // viewBox 100×100 → 4 sides × 100
+const ANSWER_DURATION_MS = 20_000;
 
 const PHASE_COLOR: Partial<Record<GameState['phase'], string>> = {
   BUZZER_OPEN: '#ef5350',
@@ -15,7 +16,7 @@ const PHASE_COLOR: Partial<Record<GameState['phase'], string>> = {
   ANSWER_RESULT: '#ffd54f',
 };
 
-export function TimerBorder({ phase, paused = false, durationMs = 30_000 }: TimerBorderProps) {
+export function TimerBorder({ phase, paused = false, durationMs = 5_000 }: TimerBorderProps) {
   const rectRef = useRef<SVGRectElement>(null);
   // elapsed: ms already consumed before the current BUZZER_OPEN start
   const stateRef = useRef({ elapsed: 0, rafId: 0, startedAt: 0 });
@@ -40,12 +41,28 @@ export function TimerBorder({ phase, paused = false, durationMs = 30_000 }: Time
       return () => cancelAnimationFrame(s.rafId);
     }
 
+    if (phase === 'ANSWERING' && !paused) {
+      // Reset and run a fresh 20 s countdown independent of the buzzer progress.
+      s.elapsed = 0;
+      s.startedAt = Date.now();
+      rect.style.strokeDashoffset = '0';
+
+      const tick = () => {
+        s.elapsed = Date.now() - s.startedAt;
+        const progress = Math.min(s.elapsed / ANSWER_DURATION_MS, 1);
+        rect.style.strokeDashoffset = String(PERIMETER * progress);
+        if (progress < 1) s.rafId = requestAnimationFrame(tick);
+      };
+      s.rafId = requestAnimationFrame(tick);
+      return () => cancelAnimationFrame(s.rafId);
+    }
+
     // Reset on new question
     if (phase === 'BOARD' || phase === 'QUESTION') {
       s.elapsed = 0;
       rect.style.strokeDashoffset = '0';
     }
-    // ANSWERING / ANSWER_RESULT / paused: freeze dashoffset where it stopped
+    // ANSWER_RESULT / paused: freeze dashoffset where it stopped
   }, [phase, paused, durationMs]);
 
   const visible = phase === 'BUZZER_OPEN' || phase === 'ANSWERING' || phase === 'ANSWER_RESULT';

@@ -6,15 +6,22 @@ interface UseGameReturn {
   error: string | null;
   reconnecting: boolean;
   send: (op: string, data?: Record<string, unknown>) => void;
+  leave: () => void;
 }
 
-export function useGame(channelId: string, playerId: string): UseGameReturn {
+export function useGame(
+  channelId: string,
+  playerId: string,
+  onSessionEnded?: () => void,
+): UseGameReturn {
   const [state, setState] = useState<GameState | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [reconnecting, setReconnecting] = useState(false);
   const wsRef = useRef<WebSocket | null>(null);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const unmountedRef = useRef(false);
+  const onSessionEndedRef = useRef(onSessionEnded);
+  useEffect(() => { onSessionEndedRef.current = onSessionEnded; }, [onSessionEnded]);
 
   useEffect(() => {
     unmountedRef.current = false;
@@ -33,6 +40,9 @@ export function useGame(channelId: string, playerId: string): UseGameReturn {
           setReconnecting(false);
         } else if (msg.op === 'error') {
           setError((msg.d as { message: string }).message);
+        } else if (msg.op === 'session_ended') {
+          unmountedRef.current = true; // prevent reconnect
+          onSessionEndedRef.current?.();
         }
         // player_joined / player_left: state.connected_players already reflects this
       };
@@ -64,5 +74,14 @@ export function useGame(channelId: string, playerId: string): UseGameReturn {
     }
   };
 
-  return { state, error, reconnecting, send };
+  const leave = () => {
+    unmountedRef.current = true;
+    if (timerRef.current) clearTimeout(timerRef.current);
+    if (wsRef.current) {
+      wsRef.current.onclose = null;
+      wsRef.current.close();
+    }
+  };
+
+  return { state, error, reconnecting, send, leave };
 }

@@ -12,10 +12,11 @@ updates:
           - "*"
         update-types:
           - "minor"
+          - "major"
           - "patch"
 
   - package-ecosystem: "npm"
-    directory: "/frontend"
+    directory: "/sources/frontend"
     schedule:
       interval: "weekly"
     target-branch: "main"
@@ -25,6 +26,7 @@ updates:
           - "*"
         update-types:
           - "minor"
+          - "major"
           - "patch"
 
   - package-ecosystem: "github-actions"
@@ -38,4 +40,5 @@ updates:
           - "*"
         update-types:
           - "minor"
+          - "major"
           - "patch"

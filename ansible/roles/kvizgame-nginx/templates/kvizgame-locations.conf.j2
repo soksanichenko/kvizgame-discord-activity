@@ -44,7 +44,7 @@ location /kvizgame/ {
 }
 
 # Discord's URL mapping for /api strips the prefix before forwarding to us.
-# fetch('/api/token') → Discord proxy → homeserver.zelgray.work/token (no /api).
+# fetch('/api/token') → Discord proxy → portal.zelgray.cherkasy.ua/token (no /api).
 location ~ ^/(token|sessions|media|health)(/|$) {
     resolver           127.0.0.11 valid=10s;
     set $kvizgame      kvizgame:{{ kvizgame_port }};

@@ -22,7 +22,7 @@
    ```
    DISCORD_CLIENT_ID=<client_id>
    DISCORD_CLIENT_SECRET=<client_secret>
-   DISCORD_PROXY_TARGET=<your-host>   # e.g. homeserver.zelgray.work
+   DISCORD_PROXY_TARGET=<your-host>   # e.g. portal.zelgray.cherkasy.ua
    ```
 
 ### 0.2 Ansible cleanup — TODO

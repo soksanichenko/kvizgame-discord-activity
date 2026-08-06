@@ -88,6 +88,25 @@ async def _token_handler(request: web.Request) -> web.Response:
     return web.json_response({"access_token": data["access_token"]})
 
 
+def _resolve_pack_path(siq_path: str) -> str:
+    """Resolve a client-supplied siq_path to a file inside kvizgame_packs_dir.
+
+    Only the basename is honored, so callers cannot point the server at an
+    arbitrary file elsewhere on disk.
+
+    Raises:
+        web.HTTPBadRequest: If siq_path has no .siq basename.
+        web.HTTPUnprocessableEntity: If the resolved file does not exist.
+    """
+    filename = os.path.basename(siq_path)
+    if not filename.lower().endswith(".siq"):
+        raise web.HTTPBadRequest(reason="siq_path must reference a .siq file")
+    path = pathlib.Path(config.kvizgame_packs_dir) / filename
+    if not path.is_file():
+        raise web.HTTPUnprocessableEntity(reason=f"Pack {filename!r} not found")
+    return str(path)
+
+
 async def _create_session(request: web.Request) -> web.Response:
     """POST /sessions — create a game session.
 
@@ -110,8 +129,9 @@ async def _create_session(request: web.Request) -> web.Response:
     if channel_id in sessions:
         raise web.HTTPConflict(reason=f"Session {channel_id!r} already exists")
 
+    siq_path = _resolve_pack_path(body["siq_path"])
     try:
-        package = load(body["siq_path"]).package
+        package = load(siq_path).package
     except Exception as exc:
         raise web.HTTPUnprocessableEntity(reason=f"Failed to load .siq: {exc}") from exc
 
@@ -129,7 +149,7 @@ async def _create_session(request: web.Request) -> web.Response:
     session = GameSession(
         channel_id,
         game,
-        body["siq_path"],
+        siq_path,
         body["host_id"],
         host_name=str(body.get("host_name", body["host_id"])),
         host_avatar=body.get("host_avatar"),
@@ -152,7 +172,8 @@ async def _pack_media_handler(request: web.Request) -> web.Response:
     if folder not in _MEDIA_FOLDERS:
         raise web.HTTPNotFound()
     filename = os.path.basename(urllib.parse.unquote(request.match_info["filename"]))
-    if not filename:
+    # basename() leaves ".."/"." unchanged when there's no separator to strip.
+    if pack_stem in ("", ".", "..") or filename in ("", ".", ".."):
         raise web.HTTPForbidden(reason="Invalid filename")
 
     file_path = pathlib.Path(config.kvizgame_sessions_dir) / "packs" / pack_stem / folder / filename

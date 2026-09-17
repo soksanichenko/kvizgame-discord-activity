@@ -25,7 +25,7 @@
    DISCORD_PROXY_TARGET=<your-host>   # e.g. portal.zelgray.cherkasy.ua
    ```
 
-### 0.2 Ansible cleanup — TODO
+### 0.2 Ansible cleanup — done
 
 `ansible/` was copied verbatim from `discord-meow-bot`. Needs to be adapted:
 
@@ -50,14 +50,16 @@
 All changes are in `frontend/src/kvizgame/screens/Lobby.tsx` and `kvizgame/server.py`
 unless noted otherwise.
 
-### 1.1 Pack upload in UI
+### 1.1 Pack upload in UI — done
 
 **Why:** the bot command `/kvizgame upload` no longer exists; packs can only be
 uploaded through the Activity UI.
 
-**Backend** (`kvizgame/server.py`):
-- Add `POST /packs` — multipart upload, saves `.siq` to `packs_dir`,
+**Backend** (`server.py`):
+- `POST /packs` — multipart upload, saves `.siq` to `packs_dir`,
   validates with `parser.load()`, returns `{name, path}` on success.
+- Shipped as chunked upload (`POST /packs/chunk`) instead of a single multipart
+  request, to bypass Discord's Activity proxy 100MB request-size limit.
 
 **Frontend** (`Lobby.tsx`):
 - File input button (`accept=".siq"`), upload progress indicator,
@@ -65,7 +67,7 @@ uploaded through the Activity UI.
 
 ---
 
-### 1.2 Role selection
+### 1.2 Role selection — done (shipped differently than planned below)
 
 **Why:** currently the person who clicks "Start Game" is always the host,
 and every other Activity participant is automatically a player.
@@ -75,16 +77,15 @@ and every other Activity participant is automatically a player.
 - **Player** — plays the game, buzzes in, bids. Up to N (set by lobby creator).
 - **Spectator** — watches in read-only mode. Unlimited.
 
-**Frontend** (`Lobby.tsx`):
-- Replace flat participant list with role-slot UI:
-  host slot × 1, player slots × N, spectator section.
-- Lobby creator assigns roles (or participants self-select — TBD).
-- "Start Game" sends `player_ids`, `host_id`, `spectator_ids` to `POST /sessions`.
-
-**Backend** (`kvizgame/session.py`, `kvizgame/server.py`):
-- `POST /sessions` accepts optional `spectator_ids: list[str]`.
-- `GameSession.connect()` allows spectators (not in `player_ids`) in read-only mode:
-  they receive all broadcast events but cannot send game actions.
+**What actually shipped** (`Lobby.tsx`): a single `Role = 'host' | 'player' | 'watch'`
+per participant, cycled by clicking their tile (`cycleRole`) rather than a
+slot-based assignment UI. `POST /sessions` still only takes `player_ids` (the
+`host` participant plus anyone in `'watch'` are simply excluded from that
+list) — there is no `spectator_ids` field, and `GameSession` has no read-only
+connection mode; a `'watch'` participant just isn't part of the session at
+all (see Phase 2 "Spectator view", still open). Mid-game, a non-player can
+still be promoted into the running game as a scored player via
+`GameMachine.add_player` (blocked during the final round / after game over).
 
 ---
 
@@ -98,12 +99,24 @@ Limits how many participants can claim the Player role.
 
 ---
 
-### 1.4 Game rules
+### 1.4 Game rules — done (shipped different fields than planned below)
 
 **Why:** SIGame has configurable per-session rules. `Settings` currently only
 exposes `buzz_window_ms`.
 
-**Backend** (`kvizgame/game.py` → `Settings` dataclass):
+**What actually shipped** (`game.py` → `Settings` dataclass), instead of the
+fields originally proposed below:
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `progressive_reveal` | `bool` | `False` | Animate text/image atoms instead of showing instantly |
+| `false_starts` | `bool` | `False` | `False`: players may buzz any time during QUESTION; `True`: only after BUZZER_OPEN |
+| `show_answers_to_host` | `bool` | `False` | Send the correct answer to the host during QUESTION phase |
+
+**Frontend** (`Lobby.tsx`): collapsible "Rules" section with a toggle per field above.
+
+<details>
+<summary>Original proposal (not what shipped)</summary>
 
 | Field | Type | Default | Description |
 |---|---|---|---|
@@ -112,18 +125,16 @@ exposes `buzz_window_ms`.
 | `appeal_enabled` | `bool` | `True` | Allow players to appeal a wrong judgment |
 | `partial_answer_allowed` | `bool` | `False` | Host can accept a partial answer |
 
-- Add fields to `Settings`, update `to_dict` / `from_dict`.
-- `POST /sessions` body: `settings` object replaces bare `buzz_window_ms`.
-
-**Frontend** (`Lobby.tsx`):
-- Collapsible "Rules" section with toggles and a slider for `question_timer_ms`.
+</details>
 
 ---
 
 ## Phase 2: Gameplay improvements
 
 - **Spectator view** — spectators see board and scores but no buzz button
-- **Reconnect** — player rejoins mid-game and gets current state replayed
+- **Reconnect** — done: `GameSession.connect()` sends full current state to any
+  (re)connecting player, and sessions are persisted to disk and restored on
+  process restart (`main.py:_load_sessions`)
 - **Pack preview** — show pack name, round count, author before starting
 
 ---

@@ -1,0 +1,12 @@
+# Accepted risks for the daily security scan. An entry stops being honoured after
+# `ignoreUntil`, so the finding comes back for review.
+
+[[IgnoredVulns]]
+id = "GHSA-mrhx-c7xc-m3w5"
+ignoreUntil = 2026-12-31
+reason = """\
+zod 3.25.76 comes only through @discord/embedded-app-sdk, whose latest releases \
+(2.5.0 and 3.0.0-beta.2) require zod ^3.9.8 and use APIs removed in zod 4 \
+(ZodEffects, deepPartial), the only line with the fix (4.6.6). The advisory needs a \
+very large array in a response the SDK validates; those come from the Discord \
+client and the SDK checks the message origin. Revisit when the SDK supports zod 4."""

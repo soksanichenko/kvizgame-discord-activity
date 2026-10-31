@@ -2,11 +2,13 @@
 - name: Deploy kvizgame
   hosts: all
   pre_tasks:
-    - import_tasks: pre_tasks/infisical.yml
+    - name: Load Infisical secrets
+      import_tasks: pre_tasks/infisical.yml
   roles:
     - kvizgame-nginx
   tasks:
-    - import_role:
+    - name: Deploy kvizgame container
+      import_role:
         name: deploy_kvizgame_container
         tasks_from: docker.yml
 ...

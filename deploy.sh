@@ -33,5 +33,8 @@ fi
 
 echo "=== Deploying ==="
 pushd "${PROJECT_DIR}/ansible" || exit 1
-ansible-playbook -i "${INVENTORY}" -vv "playbooks/deploy.yml" "${EXTRA_VARS}"
+# EXTRA_VARS holds several words (-e a -e b) and must be split on purpose;
+# quoting it would hand ansible-playbook a single argument.
+# shellcheck disable=SC2086
+ansible-playbook -i "${INVENTORY}" -vv "playbooks/deploy.yml" ${EXTRA_VARS}
 popd || exit 1
